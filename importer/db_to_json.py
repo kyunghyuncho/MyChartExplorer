@@ -32,17 +32,27 @@ def export_to_json(db_path, json_path):
         else:
             # Convert the patient record to a standard dictionary
             data = dict(patient_record)
-            # **CRITICAL FIX**: Explicitly add the 'patient_id' key, which the viewer expects.
+            # Explicitly add the 'patient_id' key, which the viewer expects.
             data['patient_id'] = patient_record['id'] 
             
             # Fetch all related data for this patient
-            tables = ["addresses", "telecoms", "allergies", "problems", "medications", "immunizations", "vitals", "results", "procedures"]
+            # UPDATED: Added the 'notes' table to the list of tables to export.
+            tables = [
+                "addresses", "telecoms", "allergies", "problems", 
+                "medications", "immunizations", "vitals", "results", 
+                "procedures", "notes"
+            ]
             for table in tables:
-                cursor.execute(f"SELECT * FROM {table} WHERE patient_id = ?", (data['patient_id'],))
-                records = cursor.fetchall()
-                # Convert each row object to a standard dictionary
-                data[table] = [dict(row) for row in records]
-                logging.info(f"Exported {len(records)} records from '{table}'.")
+                try:
+                    cursor.execute(f"SELECT * FROM {table} WHERE patient_id = ?", (data['patient_id'],))
+                    records = cursor.fetchall()
+                    # Convert each row object to a standard dictionary
+                    data[table] = [dict(row) for row in records]
+                    logging.info(f"Exported {len(records)} records from '{table}'.")
+                except sqlite3.OperationalError:
+                    logging.warning(f"Table '{table}' not found in the database. Skipping.")
+                    data[table] = []
+
 
         # Write the collected data to the JSON file
         with open(json_path, 'w') as f:

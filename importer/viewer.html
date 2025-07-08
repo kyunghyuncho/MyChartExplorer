@@ -31,6 +31,17 @@
             color: #0c4a6e;
             font-weight: 600;
         }
+        .note-card-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s ease-in-out;
+        }
+        .note-card.expanded .note-card-content {
+            max-height: 1000px; /* Adjust as needed */
+        }
+        .note-card-header {
+            cursor: pointer;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
@@ -86,7 +97,8 @@
                 immunizations: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M12 2v4"></path><path d="m12 18 4 4"></path><path d="m12 18-4 4"></path><path d="M20 12h-4"></path><path d="m12 12 4-4"></path><path d="M4 12H2"></path><path d="m12 12-4-4"></path><path d="m4.9 4.9 2.1 2.1"></path><path d="M17 17 19.1 19.1"></path><path d="m4.9 19.1 2.1-2.1"></path><path d="m19.1 4.9-2.1 2.1"></path></svg>`,
                 vitals: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M3 3v18h18"></path><path d="m19 9-5 5-4-4-3 3"></path></svg>`,
                 results: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>`,
-                procedures: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M9 12h6"></path><path d="M12 9v6"></path><path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.7.9 6.4 2.3L21 4"></path></svg>`
+                procedures: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M9 12h6"></path><path d="M12 9v6"></path><path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.7.9 6.4 2.3L21 4"></path></svg>`,
+                notes: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M22 10.5V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h12.5"></path><path d="m17 13 5 5-5 5"></path><path d="m3 14 3.5-3.5 3.5 3.5"></path><path d="M22 18H10"></path></svg>`
             };
 
             const SECTION_CONFIG = {
@@ -97,7 +109,8 @@
                 immunizations: { title: 'Immunizations', headers: ['Vaccine', 'Date Administered'], fields: ['vaccine_name', 'date_administered'], dateField: 'date_administered' },
                 vitals: { title: 'Vital Signs', headers: ['Vital Sign', 'Value', 'Unit', 'Date'], fields: ['vital_sign', 'value', 'unit', 'effective_date'], dateField: 'effective_date' },
                 results: { title: 'Lab Results', headers: ['Test', 'Value', 'Unit', 'Reference Range', 'Interpretation', 'Date'], fields: ['test_name', 'value', 'unit', 'reference_range', 'interpretation', 'effective_date'], dateField: 'effective_date' },
-                procedures: { title: 'Procedures & Surgeries', headers: ['Procedure', 'Date', 'Provider'], fields: ['procedure_name', 'date', 'provider'], dateField: 'date' }
+                procedures: { title: 'Procedures & Surgeries', headers: ['Procedure', 'Date', 'Provider'], fields: ['procedure_name', 'date', 'provider'], dateField: 'date' },
+                notes: { title: 'Clinical Notes', dateField: 'note_date'}
             };
 
             let healthData = null;
@@ -186,7 +199,11 @@
                         if (config.dateField) {
                             sectionData.sort((a, b) => (b[config.dateField] || '').localeCompare(a[config.dateField] || ''));
                         }
-                        contentHtml = renderTable(config, sectionData);
+                        if (sectionKey === 'notes') {
+                             contentHtml = renderNotes(sectionData);
+                        } else {
+                            contentHtml = renderTable(config, sectionData);
+                        }
                     }
                 }
                 
@@ -236,6 +253,28 @@
                 `).join('')}</tbody>`;
 
                 return `<div class="overflow-x-auto"><table class="w-full min-w-[600px]">${thead}${tbody}</table></div>`;
+            }
+
+            function renderNotes(data) {
+                const noteCards = data.map(note => `
+                    <div class="note-card border border-slate-200 rounded-lg mb-4">
+                        <div class="note-card-header bg-slate-50 p-4 flex justify-between items-center" onclick="this.parentElement.classList.toggle('expanded')">
+                            <div>
+                                <h4 class="font-semibold text-slate-800">${note.note_title || 'Clinical Note'}</h4>
+                                <p class="text-xs text-slate-500 mt-1">
+                                    ${formatDate(note.note_date)} | ${note.provider || 'N/A'}
+                                </p>
+                            </div>
+                            <span class="text-slate-400 transform transition-transform">▼</span>
+                        </div>
+                        <div class="note-card-content">
+                            <div class="p-4 border-t border-slate-200 text-sm whitespace-pre-wrap leading-relaxed">
+                                ${note.note_content || 'No content available.'}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+                return `<div class="space-y-4">${noteCards}</div>`;
             }
 
             function renderEmptyState(title) {
