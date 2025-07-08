@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Health Record Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        .nav-item.active {
+            background-color: #e0f2fe;
+            color: #0c4a6e;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div id="app" class="flex flex-col md:flex-row min-h-screen">
+        <!-- Sidebar Navigation -->
+        <aside id="sidebar" class="w-full md:w-64 bg-white border-r border-slate-200 p-4 md:p-6 flex-shrink-0">
+            <h1 class="text-2xl font-bold text-slate-800 mb-6 flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-sky-600 mr-2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+                Health Record
+            </h1>
+            <nav id="navigation" class="space-y-2">
+                <!-- Navigation items will be injected here -->
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-4 md:p-8 overflow-y-auto">
+            <header id="patient-header" class="mb-8 p-6 bg-white rounded-lg shadow-sm border border-slate-200 hidden">
+                <!-- Patient info will be injected here -->
+            </header>
+            
+            <div id="content-area">
+                <!-- Initial state / Upload prompt -->
+                <div id="upload-prompt" class="text-center py-20 px-6 bg-white rounded-lg shadow-sm border border-slate-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mx-auto text-slate-400 mb-4"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                    <h2 class="text-xl font-semibold text-slate-700 mb-2">View Your Health Record</h2>
+                    <p class="text-slate-500 mb-6 max-w-md mx-auto">First, use the Python scripts to create a `.json` file from your XML records. Then, upload that file here.</p>
+                    <label for="file-upload" class="cursor-pointer inline-flex items-center px-6 py-3 bg-sky-600 text-white font-semibold rounded-lg shadow-sm hover:bg-sky-700 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        Upload Health Record JSON
+                    </label>
+                    <input id="file-upload" type="file" class="hidden" accept=".json,application/json">
+                </div>
+                <!-- Data tables will be injected here -->
+            </div>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const fileUpload = document.getElementById('file-upload');
+            const uploadPrompt = document.getElementById('upload-prompt');
+            const navigation = document.getElementById('navigation');
+            const contentArea = document.getElementById('content-area');
+            const patientHeader = document.getElementById('patient-header');
+
+            const ICONS = {
+                demographics: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>`,
+                allergies: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="m11.25 21.75-5.5-5.25-5.5-5.5 5.25-5.5 5.5 5.5 5.25 5.5-5.25 5.5Z"></path><path d="m21.75 11.25-5.5-5.25-5.5-5.5 5.25-5.5 5.5 5.5 5.25 5.5Z"></path></svg>`,
+                problems: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+                medications: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><rect x="7" y="7" width="10" height="10" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="7"></line><line x1="12" y1="17" x2="12" y2="21"></line><line x1="3" y1="12" x2="7" y2="12"></line><line x1="17" y1="12" x2="21" y2="12"></line></svg>`,
+                immunizations: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M12 2v4"></path><path d="m12 18 4 4"></path><path d="m12 18-4 4"></path><path d="M20 12h-4"></path><path d="m12 12 4-4"></path><path d="M4 12H2"></path><path d="m12 12-4-4"></path><path d="m4.9 4.9 2.1 2.1"></path><path d="M17 17 19.1 19.1"></path><path d="m4.9 19.1 2.1-2.1"></path><path d="m19.1 4.9-2.1 2.1"></path></svg>`,
+                vitals: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M3 3v18h18"></path><path d="m19 9-5 5-4-4-3 3"></path></svg>`,
+                results: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>`,
+                procedures: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3"><path d="M9 12h6"></path><path d="M12 9v6"></path><path d="M21 12a9 9 0 1 1-9-9c2.5 0 4.7.9 6.4 2.3L21 4"></path></svg>`
+            };
+
+            const SECTION_CONFIG = {
+                demographics: { title: 'Demographics' },
+                allergies: { title: 'Allergies & Reactions', headers: ['Substance', 'Reaction', 'Status', 'Date'], fields: ['substance', 'reaction', 'status', 'effective_date'], dateField: 'effective_date' },
+                problems: { title: 'Health Problems', headers: ['Problem', 'Status', 'Onset Date', 'Resolved Date'], fields: ['problem_name', 'status', 'onset_date', 'resolved_date'], dateField: 'onset_date' },
+                medications: { title: 'Medications', headers: ['Medication', 'Instructions', 'Status', 'Start Date', 'End Date'], fields: ['medication_name', 'instructions', 'status', 'start_date', 'end_date'], dateField: 'start_date' },
+                immunizations: { title: 'Immunizations', headers: ['Vaccine', 'Date Administered'], fields: ['vaccine_name', 'date_administered'], dateField: 'date_administered' },
+                vitals: { title: 'Vital Signs', headers: ['Vital Sign', 'Value', 'Unit', 'Date'], fields: ['vital_sign', 'value', 'unit', 'effective_date'], dateField: 'effective_date' },
+                results: { title: 'Lab Results', headers: ['Test', 'Value', 'Unit', 'Reference Range', 'Interpretation', 'Date'], fields: ['test_name', 'value', 'unit', 'reference_range', 'interpretation', 'effective_date'], dateField: 'effective_date' },
+                procedures: { title: 'Procedures & Surgeries', headers: ['Procedure', 'Date', 'Provider'], fields: ['procedure_name', 'date', 'provider'], dateField: 'date' }
+            };
+
+            let healthData = null;
+
+            fileUpload.addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        healthData = JSON.parse(e.target.result);
+                        if (!healthData || !healthData.patient_id) {
+                            throw new Error('Invalid data structure in JSON file. Missing patient_id.');
+                        }
+                        renderApp();
+                    } catch (error) {
+                        alert(`Error: ${error.message}`);
+                        console.error("File Read/Parse Error:", error);
+                    }
+                };
+                reader.onerror = () => {
+                    alert('Error reading the file.');
+                };
+                reader.readAsText(file);
+            });
+
+            function renderApp() {
+                uploadPrompt.classList.add('hidden');
+                renderPatientHeader();
+                renderNavigation();
+                renderSection('demographics'); // Show demographics by default
+            }
+
+            function renderPatientHeader() {
+                const { full_name, dob, gender, mrn } = healthData;
+                const dobDate = dob ? new Date(dob.substring(0, 4), dob.substring(4, 6) - 1, dob.substring(6, 8)) : null;
+                const age = dobDate && !isNaN(dobDate) ? Math.floor((new Date() - dobDate) / 3.15576e+10) : 'N/A';
+
+                patientHeader.innerHTML = `
+                    <div class="flex flex-col md:flex-row justify-between items-start">
+                        <div>
+                            <h2 class="text-3xl font-bold text-slate-800">${full_name || 'N/A'}</h2>
+                            <p class="text-slate-500 mt-1">Patient Record</p>
+                        </div>
+                        <div class="text-sm text-slate-600 mt-4 md:mt-0 md:text-right space-y-1">
+                            <div><strong>DOB:</strong> ${formatDate(dob) || 'N/A'} (${age} years)</div>
+                            <div><strong>Gender:</strong> ${gender || 'N/A'}</div>
+                            <div><strong>MRN:</strong> ${mrn || 'N/A'}</div>
+                        </div>
+                    </div>
+                `;
+                patientHeader.classList.remove('hidden');
+            }
+
+            function renderNavigation() {
+                navigation.innerHTML = ''; // Clear previous nav
+                Object.keys(SECTION_CONFIG).forEach(key => {
+                    const button = document.createElement('button');
+                    button.className = 'nav-item w-full flex items-center text-left px-4 py-2.5 text-slate-600 rounded-lg hover:bg-slate-100 transition-colors';
+                    button.dataset.section = key;
+                    button.innerHTML = `${ICONS[key] || ''} ${SECTION_CONFIG[key].title}`;
+                    button.onclick = () => renderSection(key);
+                    navigation.appendChild(button);
+                });
+            }
+
+            function renderSection(sectionKey) {
+                // Update active nav item
+                document.querySelectorAll('.nav-item').forEach(item => {
+                    item.classList.toggle('active', item.dataset.section === sectionKey);
+                });
+
+                contentArea.innerHTML = ''; // Clear content
+                const config = SECTION_CONFIG[sectionKey];
+                let contentHtml = '';
+
+                if (sectionKey === 'demographics') {
+                    contentHtml = renderDemographics();
+                } else {
+                    const sectionData = healthData[sectionKey] || [];
+                    if (sectionData.length === 0) {
+                        contentHtml = renderEmptyState(config.title);
+                    } else {
+                        // Sort data by date, descending
+                        if (config.dateField) {
+                            sectionData.sort((a, b) => (b[config.dateField] || '').localeCompare(a[config.dateField] || ''));
+                        }
+                        contentHtml = renderTable(config, sectionData);
+                    }
+                }
+                
+                const sectionWrapper = `
+                    <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden animate-fade-in">
+                        <h3 class="text-xl font-semibold p-6 border-b border-slate-200">${config.title}</h3>
+                        <div class="p-6">${contentHtml}</div>
+                    </div>
+                `;
+                contentArea.innerHTML = sectionWrapper;
+            }
+
+            function renderDemographics() {
+                const { marital_status, race, ethnicity, addresses = [], telecoms = [] } = healthData;
+                const mainAddress = addresses.find(a => a.use === 'HP') || addresses[0] || {};
+                const mainPhone = telecoms.find(t => t.use === 'HP') || telecoms[0] || {};
+
+                return `
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                        <div class="space-y-4">
+                            <div><strong class="text-slate-500 block mb-1">Marital Status</strong> ${marital_status || 'N/A'}</div>
+                            <div><strong class="text-slate-500 block mb-1">Race</strong> ${race || 'N/A'}</div>
+                            <div><strong class="text-slate-500 block mb-1">Ethnicity</strong> ${ethnicity || 'N/A'}</div>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <strong class="text-slate-500 block mb-1">Primary Address</strong>
+                                ${mainAddress.street ? `${mainAddress.street}<br>${mainAddress.city}, ${mainAddress.state} ${mainAddress.zip}` : 'N/A'}
+                            </div>
+                             <div>
+                                <strong class="text-slate-500 block mb-1">Primary Phone</strong>
+                                ${mainPhone.value || 'N/A'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderTable(config, data) {
+                const { headers, fields } = config;
+                const thead = `<thead><tr class="bg-slate-50">${headers.map(h => `<th class="p-3 text-sm font-semibold text-slate-600 text-left">${h}</th>`).join('')}</tr></thead>`;
+                
+                const tbody = `<tbody>${data.map((row, index) => `
+                    <tr class="border-t border-slate-200 ${index % 2 !== 0 ? 'bg-slate-50/50' : ''}">
+                        ${fields.map(field => `<td class="p-3 text-sm text-slate-700 align-top">${formatCell(row[field], field)}</td>`).join('')}
+                    </tr>
+                `).join('')}</tbody>`;
+
+                return `<div class="overflow-x-auto"><table class="w-full min-w-[600px]">${thead}${tbody}</table></div>`;
+            }
+
+            function renderEmptyState(title) {
+                return `<div class="text-center py-12">
+                            <p class="text-slate-500">No records found for ${title}.</p>
+                        </div>`;
+            }
+            
+            function formatCell(value, fieldKey) {
+                if (value === null || value === undefined) return '<span class="text-slate-400">N/A</span>';
+                const config = Object.values(SECTION_CONFIG).find(c => c.fields && c.fields.includes(fieldKey));
+                if (config && config.dateField === fieldKey) {
+                    return formatDate(value);
+                }
+                return String(value).replace(/</g, "&lt;").replace(/>/g, "&gt;"); // Basic sanitization
+            }
+
+            function formatDate(dateStr) {
+                if (!dateStr || String(dateStr).length < 8) return dateStr || '<span class="text-slate-400">N/A</span>';
+                const year = String(dateStr).substring(0, 4);
+                const month = String(dateStr).substring(4, 6);
+                const day = String(dateStr).substring(6, 8);
+                const date = new Date(year, month - 1, day);
+                if (isNaN(date.getTime())) {
+                    return dateStr;
+                }
+                return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            }
+        });
+    </script>
+</body>
+</html>
