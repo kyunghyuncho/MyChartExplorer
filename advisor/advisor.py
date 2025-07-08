@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 import sqlite3
@@ -22,7 +21,7 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         super().__init__()
         self.title("Personal Medical Advisor")
         self.geometry("1200x800")
-        self.minsize(800, 600)
+        self.minsize(900, 700)
 
         # --- App State ---
         self.api_key = ""
@@ -31,7 +30,7 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         self.retrieved_data = ""
         
         # --- Font Management ---
-        self.base_font_size = 12 # Increased default font size
+        self.base_font_size = 12
         self.fonts = {}
 
         # --- UI Initialization ---
@@ -46,21 +45,20 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
         
-        # --- Modern Color Scheme ---
         self.colors = {
-            "bg_main": "#f0f4f8",
+            "bg_main": "#f1f5f9",
             "bg_sidebar": "#ffffff",
             "bg_chat": "#ffffff",
             "bg_input": "#ffffff",
-            "text_primary": "#1e293b",
+            "text_primary": "#0f172a",
             "text_secondary": "#475569",
             "accent": "#0ea5e9",
             "accent_hover": "#0284c7",
             "border": "#e2e8f0",
             "info": "#0369a1",
-            "error": "#dc2626",
-            "user_msg": "#075985",
-            "bot_msg": "#166534"
+            "error": "#b91c1c",
+            "user_msg": "#082f49",
+            "bot_msg": "#14532d"
         }
 
         self.configure(background=self.colors["bg_main"])
@@ -72,7 +70,6 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         self.style.configure("TLabelframe", background=self.colors["bg_sidebar"], bordercolor=self.colors["border"])
         self.style.configure("TLabelframe.Label", background=self.colors["bg_sidebar"], foreground=self.colors["text_secondary"], font=("Arial", 10, "bold"))
 
-        # --- Button Styles ---
         self.style.map("TButton",
             background=[('active', self.colors["accent_hover"]), ('!disabled', self.colors["accent"])],
             foreground=[('!disabled', 'white')]
@@ -81,25 +78,17 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         
         self.style.map("Reset.TButton",
             background=[('active', '#fee2e2'), ('!disabled', '#fef2f2')],
-            foreground=[('!disabled', '#b91c1c')]
+            foreground=[('!disabled', self.colors["error"])]
         )
         self.style.configure("Reset.TButton", font=("Arial", 10, "bold"), padding=10, borderwidth=1, relief="solid")
         self.style.map("Reset.TButton", bordercolor=[('!disabled', '#fecaca')])
 
-        # --- Entry Style ---
-        self.style.configure("TEntry",
-            fieldbackground=self.colors["bg_input"],
-            foreground=self.colors["text_primary"],
-            borderwidth=1,
-            relief="solid",
-            padding=10
-        )
-        self.style.map("TEntry",
-            bordercolor=[('focus', self.colors["accent"]), ('!focus', self.colors["border"])]
-        )
+        self.style.configure("TEntry", fieldbackground=self.colors["bg_input"], foreground=self.colors["text_primary"],
+                             borderwidth=1, relief="solid", padding=10)
+        self.style.map("TEntry", bordercolor=[('focus', self.colors["accent"]), ('!focus', self.colors["border"])])
 
     def _apply_font_settings(self):
-        """Applies all font configurations to the widgets. Called on init and when font size changes."""
+        """Applies all font configurations to the widgets."""
         self.fonts = {
             "normal": ("Arial", self.base_font_size),
             "bold": ("Arial", self.base_font_size, "bold"),
@@ -109,9 +98,8 @@ class PersonalMedicalAdvisorApp(tk.Tk):
             "code": ("Courier New", self.base_font_size - 1),
         }
         
-        # Update chat display tags for markdown rendering
-        self.chat_display.tag_configure("h1", font=self.fonts["h1"], spacing3=10)
-        self.chat_display.tag_configure("h2", font=self.fonts["h2"], spacing3=8)
+        self.chat_display.tag_configure("h1", font=self.fonts["h1"], spacing3=15, spacing1=10)
+        self.chat_display.tag_configure("h2", font=self.fonts["h2"], spacing3=10, spacing1=8)
         self.chat_display.tag_configure("bold", font=self.fonts["bold"])
         self.chat_display.tag_configure("italic", font=self.fonts["italic"])
         self.chat_display.tag_configure("code", font=self.fonts["code"], background="#f8fafc", relief="sunken", borderwidth=1, lmargin1=10, lmargin2=10, spacing1=5, spacing3=5)
@@ -121,14 +109,13 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         self.chat_display.tag_configure("user_msg", font=self.fonts["bold"], foreground=self.colors["user_msg"])
         self.chat_display.tag_configure("bot_msg", font=self.fonts["bold"], foreground=self.colors["bot_msg"])
         
-        # Update other widgets
         self.symptom_entry.configure(font=self.fonts["normal"])
 
     def _bind_shortcuts(self):
         """Binds keyboard shortcuts for font size adjustment."""
         modifier = "Command" if platform.system() == "Darwin" else "Control"
         self.bind(f"<{modifier}-plus>", self.increase_font_size)
-        self.bind(f"<{modifier}-equal>", self.increase_font_size) # plus is often on the = key
+        self.bind(f"<{modifier}-equal>", self.increase_font_size)
         self.bind(f"<{modifier}-minus>", self.decrease_font_size)
 
     def increase_font_size(self, event=None):
@@ -152,19 +139,16 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         self._create_left_pane(left_frame)
 
         # --- Right Main Area ---
-        right_frame = ttk.Frame(self, padding=(5, 10, 10, 10))
-        right_frame.grid(row=0, column=1, sticky="nsew")
-        self._create_right_pane(right_frame)
+        self.right_frame = ttk.Frame(self, padding=(5, 10, 10, 10))
+        self.right_frame.grid(row=0, column=1, sticky="nsew")
+        self._create_right_pane(self.right_frame)
 
     def _create_left_pane(self, parent):
-        """Populates the left sidebar with controls."""
         parent.columnconfigure(0, weight=1)
         
-        # --- App Title ---
         title_label = ttk.Label(parent, text="🩺 Medical Advisor", style="Title.TLabel")
         title_label.grid(row=0, column=0, pady=(0, 25), sticky="w")
 
-        # --- Database Setup Card ---
         db_frame = ttk.LabelFrame(parent, text="Medical Database", padding=15)
         db_frame.grid(row=1, column=0, sticky="ew", pady=10)
         db_frame.columnconfigure(0, weight=1)
@@ -173,7 +157,6 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         db_button = ttk.Button(db_frame, text="📁 Select Database File", command=self.select_database)
         db_button.grid(row=1, column=0, pady=(10, 0), sticky="ew")
 
-        # --- API Key Setup Card ---
         api_frame = ttk.LabelFrame(parent, text="Gemini API Key", padding=15)
         api_frame.grid(row=2, column=0, sticky="ew", pady=10)
         api_frame.columnconfigure(0, weight=1)
@@ -182,7 +165,6 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         api_button = ttk.Button(api_frame, text="🔑 Set API Key", command=self.set_api_key)
         api_button.grid(row=1, column=0, pady=(10, 0), sticky="ew")
 
-        # --- Reset Button ---
         reset_button = ttk.Button(parent, text="🔄 Reset Conversation", command=self.reset_conversation, style="Reset.TButton")
         reset_button.grid(row=3, column=0, sticky="ew", pady=(20, 10))
 
@@ -191,7 +173,6 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         parent.rowconfigure(0, weight=1)
         parent.columnconfigure(0, weight=1)
 
-        # --- Chat Display Area ---
         chat_container = ttk.Frame(parent, style="Card.TFrame")
         chat_container.grid(row=0, column=0, sticky="nsew", pady=(0, 10))
         chat_container.rowconfigure(0, weight=1)
@@ -209,15 +190,16 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         self.chat_display['yscrollcommand'] = scrollbar.set
 
         # --- User Input Area ---
-        input_frame = ttk.Frame(parent)
-        input_frame.grid(row=1, column=0, sticky="ew")
-        input_frame.columnconfigure(0, weight=1)
+        # **FIX:** Assign the frame to self.input_area_frame to make it an instance attribute
+        self.input_area_frame = ttk.Frame(parent)
+        self.input_area_frame.grid(row=1, column=0, sticky="ew")
+        self.input_area_frame.columnconfigure(0, weight=1)
 
-        self.symptom_entry = ttk.Entry(input_frame, style="TEntry")
+        self.symptom_entry = ttk.Entry(self.input_area_frame, style="TEntry")
         self.symptom_entry.grid(row=0, column=0, sticky="ew", padx=(0,10))
         self.symptom_entry.bind("<Return>", self.handle_symptom_submission)
 
-        self.send_button = ttk.Button(input_frame, text="➤ Send", command=self.handle_symptom_submission)
+        self.send_button = ttk.Button(self.input_area_frame, text="➤ Send", command=self.handle_symptom_submission)
         self.send_button.grid(row=0, column=1, sticky="e")
         
         self.disable_chat_input("Please select a database and set your API key.")
@@ -235,7 +217,7 @@ class PersonalMedicalAdvisorApp(tk.Tk):
             if os.path.exists(self.db_path):
                 self.db_status_label.config(text=f"DB: {os.path.basename(self.db_path)}", foreground="green")
             else:
-                self.db_path = "" # Invalidate if path no longer exists
+                self.db_path = ""
         
         self.check_setup_completion()
 
@@ -349,13 +331,11 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         
     def run_retrieval_and_advice_flow(self, symptoms):
         """Orchestrates the multi-step process of getting advice."""
-        # Step 1: Get DB Schema
         schema = self.get_db_schema()
         if not schema:
             self.enable_chat_input("Could not read database schema. Please check the file.")
             return
 
-        # Step 2: Ask Gemini for relevant categories
         prompt1 = self._create_categories_prompt(symptoms, schema)
         categories_json_str = self.call_gemini_api(prompt1, is_json_output=True)
         if not categories_json_str:
@@ -369,7 +349,6 @@ class PersonalMedicalAdvisorApp(tk.Tk):
             self.enable_chat_input("An error occurred. Please try again.")
             return
             
-        # Step 3: Ask Gemini for specific SQL queries
         prompt2 = self._create_queries_prompt(categories, schema)
         queries_json_str = self.call_gemini_api(prompt2, is_json_output=True)
         if not queries_json_str:
@@ -383,7 +362,6 @@ class PersonalMedicalAdvisorApp(tk.Tk):
             self.enable_chat_input("An error occurred. Please try again.")
             return
 
-        # Step 4: Execute queries and display for confirmation
         self.retrieved_data = self.execute_db_queries(queries)
         self.display_retrieved_data_and_confirm()
 
@@ -395,7 +373,7 @@ class PersonalMedicalAdvisorApp(tk.Tk):
             {schema}
             
             Please respond with a JSON object containing a single key "categories" which is a list of strings. Each string should be a brief, user-friendly description of a relevant data category.
-            For example: ["Recent blood pressure readings", "Current active medications", "History of surgeries related to the abdomen"].
+            For example: ["Recent blood pressure readings", "Current active medications", "History of surgeries related to the abdomen", "Recent clinical notes mentioning headaches"].
         """)
 
     def _create_queries_prompt(self, categories, schema):
@@ -405,7 +383,7 @@ class PersonalMedicalAdvisorApp(tk.Tk):
             {schema}
             
             Generate the SQLite3 queries required to retrieve this information.
-            **IMPORTANT**: The queries must be very specific to retrieve only the minimal necessary data. Do NOT use `SELECT *`. Select only the specific columns needed. For any query on a table that has a `patient_id` column, you **MUST** include `WHERE patient_id = ?` in the query. Use other `WHERE` clauses with dates or other conditions to further narrow down results where appropriate.
+            **IMPORTANT**: The queries must be very specific to retrieve only the minimal necessary data. Do NOT use `SELECT *`. Select only the specific columns needed. For any query on a table that has a `patient_id` column, you **MUST** include `WHERE patient_id = ?` in the query. For the `notes` table, use `WHERE note_content LIKE '%symptom%'` to find relevant notes. Use other `WHERE` clauses with dates or other conditions to further narrow down results where appropriate.
             
             Please respond with a JSON object containing a single key "queries" which is a list of strings, where each string is a single, valid SQLite3 query.
             Example of a good specific query: "SELECT medication_name, start_date FROM medications WHERE patient_id = ? AND status = 'active' ORDER BY start_date DESC LIMIT 5;"
@@ -459,26 +437,40 @@ class PersonalMedicalAdvisorApp(tk.Tk):
             return "Error connecting to the database."
 
     def display_retrieved_data_and_confirm(self):
-        """Shows the retrieved data to the user and asks for confirmation to proceed."""
-        self.chat_display.config(state=tk.NORMAL)
-        self.chat_display.insert(tk.END, "System:\n", ("info", "bold"))
-        self.chat_display.insert(tk.END, "I've retrieved the following information. Is it okay to send this with your symptoms to get advice?\n\n", "info")
-        self.chat_display.insert(tk.END, self.retrieved_data, "code")
-        self.chat_display.insert(tk.END, "\n\n")
-        self.chat_display.config(state=tk.DISABLED)
-        self.chat_display.see(tk.END)
+        """Shows the retrieved data to the user in a dedicated panel and asks for confirmation."""
+        self.clear_confirmation_buttons()
+
+        self.confirmation_frame = ttk.Frame(self.right_frame, style="Card.TFrame", padding=20)
+        self.confirmation_frame.grid(row=1, column=0, sticky="ew", pady=10)
+        self.confirmation_frame.columnconfigure(0, weight=1)
         
-        # Add confirmation buttons in a frame
-        confirm_frame = tk.Frame(self.chat_display, bg=self.colors["bg_chat"])
+        info_label = ttk.Label(self.confirmation_frame, text="Retrieved Information for Review", font=self.fonts["bold"], background=self.colors["bg_sidebar"])
+        info_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
         
-        yes_btn = ttk.Button(confirm_frame, text="✅ Yes, Get Advice", command=self.get_final_advice)
-        yes_btn.pack(side=tk.LEFT, padx=10)
+        data_text = tk.Text(self.confirmation_frame, height=10, wrap=tk.WORD, bg="#f8fafc", relief="solid", bd=1,
+                            font=self.fonts["code"], padx=10, pady=10)
+        data_text.insert(tk.END, self.retrieved_data)
+        data_text.config(state=tk.DISABLED)
+        data_text.grid(row=1, column=0, columnspan=2, sticky="ew")
+
+        prompt_label = ttk.Label(self.confirmation_frame, text="Send this information with your symptoms to get advice?",
+                                 style="Status.TLabel", justify=tk.LEFT)
+        prompt_label.grid(row=2, column=0, sticky="w", pady=(10,0))
         
-        no_btn = ttk.Button(confirm_frame, text="❌ No, Cancel", command=self.cancel_advice, style="Reset.TButton")
+        button_frame = ttk.Frame(self.confirmation_frame, style="Card.TFrame")
+        button_frame.grid(row=2, column=1, sticky="e", pady=(10,0))
+
+        yes_btn = ttk.Button(button_frame, text="✅ Yes, Get Advice", command=self.get_final_advice)
+        yes_btn.pack(side=tk.LEFT, padx=(0, 10))
+        
+        no_btn = ttk.Button(button_frame, text="❌ No, Cancel", command=self.cancel_advice, style="Reset.TButton")
         no_btn.pack(side=tk.LEFT)
+
+        self.right_frame.rowconfigure(0, weight=1)
+        self.right_frame.rowconfigure(1, weight=0)
+        self.right_frame.rowconfigure(2, weight=0)
         
-        self.chat_display.window_create(tk.END, window=confirm_frame)
-        self.chat_display.insert(tk.END, '\n')
+        self.input_area_frame.grid_remove() 
 
     def get_final_advice(self):
         """Sends all context to Gemini for the final advice."""
@@ -527,10 +519,11 @@ class PersonalMedicalAdvisorApp(tk.Tk):
         self.enable_chat_input("Please describe your symptoms...")
         
     def clear_confirmation_buttons(self):
-        """Removes the confirmation button frame from the chat window."""
-        for child in self.chat_display.winfo_children():
-            if isinstance(child, tk.Frame):
-                child.destroy()
+        """Removes the confirmation panel and restores the input area."""
+        if hasattr(self, 'confirmation_frame') and self.confirmation_frame.winfo_exists():
+            self.confirmation_frame.destroy()
+        
+        self.input_area_frame.grid()
 
 
 class MarkdownRenderer:
@@ -550,7 +543,7 @@ class MarkdownRenderer:
             if line.startswith('# '):
                 self.text.insert(tk.END, line[2:] + '\n\n', 'h1')
             elif line.startswith('## '):
-                self.text.insert(tk.END, line[3:] + '\n', 'h2')
+                self.text.insert(tk.END, line[3:] + '\n\n', 'h2')
             elif line.startswith('* '):
                 self.text.insert(tk.END, f"  • {line[2:]}\n", 'bullet')
             else:
