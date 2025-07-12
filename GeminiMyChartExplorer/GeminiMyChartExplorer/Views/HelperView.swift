@@ -31,7 +31,7 @@ struct MessageView: View {
         if message.role == .assistant {
             // Define options to parse all supported Markdown syntax.
             let options = AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .full // The correct option is .full
+                interpretedSyntax: .inlineOnlyPreservingWhitespace // The correct option is .full
             )
 
             // Create the attributed string with these options
