@@ -2,10 +2,11 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var appState = AppState()
+    @StateObject private var advisorViewModel = AdvisorViewModel()
 
     var body: some View {
         TabView {
-            AdvisorView()
+            AdvisorView(viewModel: advisorViewModel)
                 .tabItem {
                     Label("Advisor", systemImage: "bubble.left.and.bubble.right")
                 }

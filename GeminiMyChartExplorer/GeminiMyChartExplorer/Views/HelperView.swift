@@ -3,62 +3,68 @@ import SwiftUI
 /// A view that displays a single chat message bubble.
 struct MessageView: View {
     let message: ChatMessage
+    private let attributedText: AttributedString
 
-    var body: some View {
-        // Changed alignment to .bottom for better multiline support
-        HStack(alignment: .bottom, spacing: 10) {
-            if message.role == .assistant {
-                senderIcon
-                messageContent
-                Spacer(minLength: 20)
-            } else {
-                Spacer(minLength: 20)
-                messageContent
-                senderIcon
-            }
+    // 1. We add a custom initializer to process the text.
+    init(message: ChatMessage) {
+        self.message = message
+        do {
+            // 2. Try to convert the message string from Markdown to a styled AttributedString.
+            var options = AttributedString.MarkdownParsingOptions()
+            options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+            self.attributedText = try AttributedString(markdown: message.text, options: options)
+        } catch {
+            // 3. If parsing fails, fall back to the plain text so the app doesn't crash.
+            self.attributedText = AttributedString(message.text)
+            print("Error parsing markdown: \(error)")
         }
     }
 
-    private var senderIcon: some View {
-        Image(systemName: message.role == .user ? "person.fill" : "sparkles.fill")
-            .font(.system(size: 20))
-            .symbolRenderingMode(.multicolor)
-            .padding(.bottom, 5)
+    var body: some View {
+        HStack {
+            if message.role == .user {
+                Spacer(minLength: 64)
+            }
+
+            // 4. Use the fully-processed attributedText here.
+            Text(attributedText)
+                .font(.system(size: 14))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(bubbleColor)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .foregroundStyle(foregroundColor)
+
+            if message.role != .user {
+                Spacer(minLength: 64)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var messageContent: some View {
-        if message.role == .assistant {
-            // Define options to parse all supported Markdown syntax.
-            let options = AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace // The correct option is .full
-            )
+    // Helper properties for styling (no changes here)
+    private var bubbleColor: Color {
+        switch message.role {
+        case .user:
+            return .blue
+        case .assistant:
+            return Color(NSColor.controlBackgroundColor)
+        case .system:
+            return .clear
+        }
+    }
 
-            // Create the attributed string with these options
-            let attributedString = try? AttributedString(markdown: message.text, options: options)
-            
-            Text(attributedString ?? AttributedString(message.text))
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true) // Allow vertical expansion
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color(NSColor.controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .frame(maxWidth: 650, alignment: .leading)
-        } else {
-            // For user messages, display plain text.
-            Text(message.text)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color.accentColor)
-                .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .frame(maxWidth: 650, alignment: .trailing)
+    private var foregroundColor: Color {
+        switch message.role {
+        case .user:
+            return .white
+        case .assistant:
+            return .primary
+        case .system:
+            return .secondary
         }
     }
 }
-
 
 struct ConfirmationView: View {
     let retrievedData: String
