@@ -224,4 +224,36 @@ class DatabaseManager {
         return allResults.isEmpty ? "Queries ran but returned no data." : allResults.joined(separator: "\n\n")
     }
 
+    /// Fetches the entire clinical record, assuming only one patient exists in the DB.
+    func fetchAllRecords() async throws -> ClinicalRecord? {
+        try await dbQueue.read { db in
+            guard let patient = try Patient.fetchOne(db) else {
+                return nil // No patient found
+            }
+            
+            let patientId = patient.id!
+            
+            // Fetch all related records
+            let allergies = try Allergy.filter(Column("patientId") == patientId).fetchAll(db)
+            let problems = try Problem.filter(Column("patientId") == patientId).fetchAll(db)
+            let medications = try Medication.filter(Column("patientId") == patientId).fetchAll(db)
+            let immunizations = try Immunization.filter(Column("patientId") == patientId).fetchAll(db)
+            let vitals = try Vital.filter(Column("patientId") == patientId).fetchAll(db)
+            let results = try LabResult.filter(Column("patientId") == patientId).fetchAll(db)
+            let procedures = try Procedure.filter(Column("patientId") == patientId).fetchAll(db)
+            let notes = try Note.filter(Column("patientId") == patientId).fetchAll(db)
+
+            return ClinicalRecord(
+                patient: patient,
+                allergies: allergies,
+                problems: problems,
+                medications: medications,
+                immunizations: immunizations,
+                vitals: vitals,
+                results: results,
+                procedures: procedures,
+                notes: notes
+            )
+        }
+    }
 }

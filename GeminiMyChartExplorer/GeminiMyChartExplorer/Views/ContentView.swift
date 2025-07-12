@@ -12,6 +12,12 @@ struct ContentView: View {
                 }
                 .environmentObject(appState)
 
+            RecordsView()
+                .tabItem {
+                    Label("Records", systemImage: "list.bullet.clipboard")
+                }
+                .environmentObject(appState)
+
             ImporterView()
                 .tabItem {
                     Label("Importer", systemImage: "square.and.arrow.down.on.square")

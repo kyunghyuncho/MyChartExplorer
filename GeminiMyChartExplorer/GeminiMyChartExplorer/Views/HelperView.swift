@@ -140,3 +140,45 @@ struct MarkdownTextView: View {
     }
 }
 
+struct PlaceholderView<Content: View>: View {
+    let imageName: String
+    let title: String
+    let subtitle: String
+    let content: Content
+
+    init(imageName: String, title: String, subtitle: String, @ViewBuilder content: () -> Content = { EmptyView() }) {
+        self.imageName = imageName
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: imageName)
+                .font(.system(size: 50, weight: .light))
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 10)
+            
+            Text(title)
+                .font(.title2)
+                .fontWeight(.semibold)
+            
+            Text(subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
+            
+            if !(content is EmptyView) {
+                VStack {
+                    content
+                }
+                .padding(.top)
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+}
