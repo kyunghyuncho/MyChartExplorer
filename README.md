@@ -5,3 +5,7 @@ Use `importer` to ingest Epic's XML files into a sqlite3 database, and then use 
 ## Swift UI version
 
 Check out `GeminiMyChartExplorer` with Xcode to build your own Mac native app.
+
+### Local inference support
+
+The Swift UI version supports local model inference using `gemma3:4b-it-qat` via `Ollama`.
