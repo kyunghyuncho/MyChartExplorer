@@ -246,6 +246,12 @@ class DatabaseManager {
 
         try await dbQueue.read { db in
             for query in queries {
+                // Skip queries that are not "SELECT".
+                guard query.lowercased().hasPrefix("select") else {
+                    allResults.append("--- Skipped non-SELECT query: \(query) ---")
+                    continue
+                }
+                
                 do {
                     // Use statement arguments to safely bind the patientId, preventing SQL injection.
                     // This looks for a '?' placeholder in the query string.
@@ -259,6 +265,10 @@ class DatabaseManager {
                         // Create the header from column names on the first row.
                         if header == nil {
                             header = row.columnNames.joined(separator: " | ")
+                        }
+                        // If the row has "No known active problems", skip it.
+                        if row.databaseValues.contains(where: { $0.storage.value as? String == "No known active problems" }) {
+                            continue
                         }
                         // Format the row's values into a single string.
                         let rowValues = row.databaseValues.map { $0.isNull ? "NULL" : "\($0.storage.value ?? "")" }

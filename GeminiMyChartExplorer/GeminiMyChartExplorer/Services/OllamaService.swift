@@ -16,6 +16,8 @@ struct OllamaService : AdvisingService {
     private let host: String
     // The full URL for the '/api/generate' endpoint.
     private let apiURL: URL
+    // Use its own URLSession instance to avoid conflicts with other network requests.
+    private let urlSession: URLSession
     
     /// Initializes the service.
     /// - Parameters:
@@ -28,6 +30,13 @@ struct OllamaService : AdvisingService {
         // The URL is constructed from the host string. We can safely force-unwrap here
         // because the default and expected host strings are known to be valid URL formats.
         self.apiURL = URL(string: "\(host)/api/generate")!
+
+        // Configure and create the custom URLSession instance
+        let configuration = URLSessionConfiguration.default
+        // Set the timeout to 6 minutes (360 seconds). Adjust as needed.
+        configuration.timeoutIntervalForRequest = 360.0
+        configuration.timeoutIntervalForResource = 360.0
+        self.urlSession = URLSession(configuration: configuration)
     }
 
     // MARK: - Private API Request Handlers
@@ -45,7 +54,7 @@ struct OllamaService : AdvisingService {
         let payload = OllamaRequestPayload(model: self.model, prompt: prompt, format: "json")
         request.httpBody = try JSONEncoder().encode(payload)
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await urlSession.data(for: request)
 
         // Ensure the HTTP response is successful.
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
