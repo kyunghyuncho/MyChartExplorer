@@ -18,7 +18,7 @@ class AdvisorViewModel: ObservableObject {
     @Published var fullContextForAdvice: String = ""
 
     // New property to control the service selection from the view
-    @Published var selectedService: AiServiceType = .ollama {
+    @Published var selectedService: AiServiceType = .gemini {
         didSet {
             updateServiceState()
         }
