@@ -58,7 +58,7 @@ This is the core AI-powered workflow:
 ### 1. Clone the Repository
 
 ```bash
-git clone [https://github.com/kyunghyuncho/MyChartExplorer.git](https://github.com/kyunghyuncho/MyChartExplorer.git)
+git clone https://github.com/kyunghyuncho/MyChartExplorer.git
 cd medical-advisor-ai
 ```
 
