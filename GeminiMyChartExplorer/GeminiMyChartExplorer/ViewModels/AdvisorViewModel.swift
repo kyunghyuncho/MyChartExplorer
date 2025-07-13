@@ -1,5 +1,12 @@
 import SwiftUI
 
+// Enum to define the available AI services
+enum AiServiceType: String, CaseIterable, Identifiable {
+    case gemini = "Gemini (Remote)"
+    case ollama = "Ollama (Local)"
+    var id: Self { self }
+}
+
 @MainActor
 class AdvisorViewModel: ObservableObject {
     @Published var conversation: [ChatMessage] = []
@@ -7,43 +14,85 @@ class AdvisorViewModel: ObservableObject {
     @Published var retrievedDataForConfirmation: String = ""
     @Published var isAPIKeySet: Bool = false
     
+    @Published var dataForDisplay: String = ""
+    @Published var fullContextForAdvice: String = ""
+
+    // New property to control the service selection from the view
+    @Published var selectedService: AiServiceType = .ollama {
+        didSet {
+            updateServiceState()
+        }
+    }
+    
     private var appState: AppState?
-    private var geminiService: GeminiService?
     private var dbManager: DatabaseManager?
     private let keychainService = KeychainService()
     
+    // Hold instances of both services
+    private var geminiService: GeminiService?
+    private var ollamaService: OllamaService?
+    
+    /// Computed property to return the currently active service
+    private var activeService: AdvisingService? {
+        switch selectedService {
+        case .gemini:
+            return self.isAPIKeySet ? self.geminiService : nil
+        case .ollama:
+            return self.ollamaService
+        }
+    }
+    
+    /// A computed property to simplify the logic in the View
+    var isServiceReady: Bool {
+        return activeService != nil
+    }
+
     func setup(appState: AppState) {
         self.appState = appState
-        loadAPIKey()
+        self.ollamaService = OllamaService() // Ollama can be initialized immediately
+        loadAPIKey() // This will load the key and then call updateServiceState()
         
         if let dbPath = appState.databasePath {
             self.dbManager = DatabaseManager(path: dbPath.path)
         }
     }
     
+    /// Updates the conversation and state based on the selected service
+    func updateServiceState() {
+        conversation = [] // Clear conversation on service switch
+        let welcomeMessage: String
+        
+        switch selectedService {
+        case .gemini:
+            welcomeMessage = isAPIKeySet ? "Service changed to Gemini (Remote). Please describe your symptoms." : "Gemini service requires an API key. Please enter it below."
+        case .ollama:
+            welcomeMessage = "Service changed to Ollama (Local). Please describe your symptoms."
+        }
+        conversation.append(ChatMessage(role: .system, text: welcomeMessage))
+    }
+    
     func loadAPIKey() {
         if let key = keychainService.loadAPIKey() {
             self.geminiService = GeminiService(apiKey: key)
             self.isAPIKeySet = true
-            if self.conversation.isEmpty {
-                self.conversation.append(ChatMessage(role: .system, text: "Welcome! API Key loaded from Keychain. Please describe your symptoms."))
-            }
         } else {
             self.isAPIKeySet = false
         }
+        updateServiceState() // Update state after loading key
     }
     
     func saveAPIKey(key: String) {
         if keychainService.saveAPIKey(key) {
-            loadAPIKey()
+            loadAPIKey() // This will reload the key and update the state
         } else {
             conversation.append(ChatMessage(role: .system, text: "Error: Could not save API key to Keychain."))
         }
     }
     
     func getInitialAdvice(for symptoms: String) {
-        guard let dbManager = dbManager, let geminiService = geminiService else {
-            conversation.append(ChatMessage(role: .system, text: "Error: Services not initialized. Check DB path and API Key."))
+        guard let dbManager = dbManager, let service = activeService else {
+            let errorMsg = selectedService == .gemini ? "Error: Gemini API Key not set." : "Error: Ollama service not available."
+            conversation.append(ChatMessage(role: .system, text: errorMsg))
             return
         }
         
@@ -53,40 +102,39 @@ class AdvisorViewModel: ObservableObject {
         Task {
             do {
                 let schema = try dbManager.getSchema()
+                let categories = try await service.getRelevantCategories(symptoms: symptoms, schema: schema)
+                let queries = try await service.getSQLQueries(categories: categories, schema: schema)
                 
-                let categories = try await geminiService.getRelevantCategories(symptoms: symptoms, schema: schema)
-                let queries = try await geminiService.getSQLQueries(categories: categories, schema: schema)
-                var retrievedData = try await dbManager.executeQueries(queries)
-
-                if retrievedData.contains("No known active problems") {
-                    let sections = retrievedData.components(separatedBy: .newlines)
-                    let filteredLines = sections.filter { !$0.contains("No known active problems") }
-                    retrievedData = filteredLines.joined(separator: "\n")
-                }
-
-                // This now correctly populates the string that shows the panel
-                self.retrievedDataForConfirmation = retrievedData
+                // 1. Get the raw, potentially long data from the database
+                let rawData = try await dbManager.executeQueries(queries)
                 
+                // 2. **(New Step)** Call the summarization service
+                let processedResult = try await service.processDBResults(results: rawData, symptoms: symptoms)
+
+                // 3. Set the summarized data for user confirmation.
+                // Store the two different parts of the result
+                self.fullContextForAdvice = processedResult.fullContext
+                self.dataForDisplay = processedResult.notesForDisplay
             } catch {
                 conversation.append(ChatMessage(role: .system, text: "An error occurred: \(error.localizedDescription)"))
             }
             isThinking = false
         }
     }
-    
-    open func getFinalAdvice() {
-        guard let geminiService = geminiService, let lastUserMessage = conversation.last(where: { $0.role == .user }) else { return }
+
+    func getFinalAdvice() {
+        guard let service = activeService, let lastUserMessage = conversation.last(where: { $0.role == .user }) else { return }
         
         isThinking = true
         let symptoms = lastUserMessage.text
-        
-        // Clear the data to hide the panel before making the final request
-        let confirmedData = self.retrievedDataForConfirmation
-        self.retrievedDataForConfirmation = ""
-        
+        let confirmedData = self.dataForDisplay // This is the summarized notes for display
+        // [optional] Clear the properties to hide the panel
+//        self.dataForDisplay = ""
+//        self.fullContextForAdvice = ""
+
         Task {
             do {
-                let advice = try await geminiService.getFinalAdvice(symptoms: symptoms, context: confirmedData)
+                let advice = try await service.getFinalAdvice(symptoms: symptoms, context: confirmedData)
                 conversation.append(ChatMessage(role: .assistant, text: advice))
             } catch {
                 conversation.append(ChatMessage(role: .system, text: "Failed to get final advice: \(error.localizedDescription)"))
@@ -95,10 +143,26 @@ class AdvisorViewModel: ObservableObject {
         }
     }
     
-    open func cancelAdvice() {
-        // Clear the data to hide the panel
-        self.retrievedDataForConfirmation = ""
+    func cancelAdvice() {
+        self.dataForDisplay = ""
+        self.fullContextForAdvice = ""
+
         conversation.append(ChatMessage(role: .system, text: "Operation cancelled."))
         isThinking = false
     }
+    
+    /// Resets the conversation and all temporary state.
+    func resetConversation() {
+        // Stop any in-progress thinking
+        isThinking = false
+        
+        // Clear any data waiting for confirmation
+        dataForDisplay = ""
+        fullContextForAdvice = ""
+        
+        // This existing function will clear the conversation array
+        // and add the appropriate welcome message for the selected service.
+        updateServiceState()
+    }
+
 }

@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		413045122E2196C000389012 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 413045112E2196C000389012 /* GRDB */; };
-		41FE4A3A2E21EF7C005ADC97 /* SWXMLHash in Frameworks */ = {isa = PBXBuildFile; productRef = 41FE4A392E21EF7C005ADC97 /* SWXMLHash */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,7 +27,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				41FE4A3A2E21EF7C005ADC97 /* SWXMLHash in Frameworks */,
 				413045122E2196C000389012 /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -73,7 +71,6 @@
 			name = GeminiMyChartExplorer;
 			packageProductDependencies = (
 				413045112E2196C000389012 /* GRDB */,
-				41FE4A392E21EF7C005ADC97 /* SWXMLHash */,
 			);
 			productName = GeminiMyChartExplorer;
 			productReference = 413044FE2E21955200389012 /* GeminiMyChartExplorer.app */;
@@ -105,7 +102,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				413045102E2196C000389012 /* XCRemoteSwiftPackageReference "GRDB" */,
-				41FE4A382E21EF7C005ADC97 /* XCRemoteSwiftPackageReference "SWXMLHash" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 413044FF2E21955200389012 /* Products */;
@@ -340,14 +336,6 @@
 				kind = branch;
 			};
 		};
-		41FE4A382E21EF7C005ADC97 /* XCRemoteSwiftPackageReference "SWXMLHash" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/drmohundro/SWXMLHash.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 8.1.1;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -355,11 +343,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 413045102E2196C000389012 /* XCRemoteSwiftPackageReference "GRDB" */;
 			productName = GRDB;
-		};
-		41FE4A392E21EF7C005ADC97 /* SWXMLHash */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 41FE4A382E21EF7C005ADC97 /* XCRemoteSwiftPackageReference "SWXMLHash" */;
-			productName = SWXMLHash;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

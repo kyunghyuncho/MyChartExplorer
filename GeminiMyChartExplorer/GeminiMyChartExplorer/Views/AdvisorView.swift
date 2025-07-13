@@ -21,13 +21,36 @@ struct AdvisorView: View {
                     title: "Database Not Ready",
                     subtitle: "Please go to the 'Importer' tab to create or open a database file."
                 )
-            } else if !viewModel.isAPIKeySet {
+            } else if !viewModel.isServiceReady {
+                // This view now shows only if Gemini is selected and the key is missing
                 apiKeyEntryView
             } else {
                 mainContentView
             }
         }
         .navigationTitle("Medical Advisor")
+        .toolbar {
+            // New Toolbar item to switch between services
+            ToolbarItem(placement: .navigation) {
+                Picker("Service", selection: $viewModel.selectedService) {
+                    ForEach(AiServiceType.allCases) { service in
+                        Text(service.rawValue).tag(service)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 240)
+            }
+            
+            ToolbarItem {
+                Button(action: {
+                    viewModel.resetConversation()
+                }) {
+                    Label("Reset Conversation", systemImage: "arrow.counterclockwise")
+                }
+                .help("Reset Conversation") // Adds a tooltip on macOS
+            }
+
+        }
         .onAppear {
             viewModel.setup(appState: appState)
             isAdvisorFocused = true
@@ -45,13 +68,13 @@ struct AdvisorView: View {
             chatInterface
                 .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
 
-            if !viewModel.retrievedDataForConfirmation.isEmpty {
+            if !viewModel.fullContextForAdvice.isEmpty {
                 QueriedDataPanel(
-                    rawText: viewModel.retrievedDataForConfirmation,
+                    rawText: viewModel.fullContextForAdvice,
                     onConfirm: viewModel.getFinalAdvice,
                     onCancel: viewModel.cancelAdvice
                 )
-                .frame(minWidth: 450, maxWidth: 600) // Adjusted width for better table display
+                .frame(minWidth: 450, maxWidth: 600)
             }
         }
     }
@@ -80,21 +103,17 @@ struct AdvisorView: View {
     /// The main chat interface.
     private var chatInterface: some View {
         VStack(spacing: 0) {
-            // 2. The view is now simpler, just calling the new property.
             chatHistoryView
-            
             Divider()
             chatInputBar
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
     }
     
-    // 👇 1. Create this new computed property to hold the complex ScrollView logic.
     private var chatHistoryView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 12) { // Adjusted spacing
-                    // The ForEach loop is now much cleaner
+                VStack(spacing: 12) {
                     ForEach(viewModel.conversation) { msg in
                         MessageView(message: msg)
                     }

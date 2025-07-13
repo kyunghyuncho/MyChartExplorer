@@ -50,28 +50,29 @@ struct ImporterView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(NSColor.controlBackgroundColor))
-                
+
                 if importer.xmlFiles.isEmpty {
                     Text("Click 'Add Files' to begin.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
                     ScrollView {
-                        VStack(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 2) { // Adjust spacing here
                             ForEach(importer.xmlFiles, id: \.self) { url in
                                 Text(url.lastPathComponent)
                                     .font(.callout)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
-                                    .padding(.vertical, 4)
+                                    .padding(.vertical, 2) // Reduced vertical padding
                             }
                         }
                         .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading) // Align frame to the left
                     }
                 }
             }
             .frame(height: 150)
-            
+
             HStack {
                 Button("Add Files", systemImage: "plus") { importer.selectFiles() }
                 Spacer()
@@ -82,7 +83,7 @@ struct ImporterView: View {
             .controlSize(.small)
         }
     }
-    
+
     /// The view for setting the database file destination.
     private var databaseDestinationView: some View {
         HStack {

@@ -34,6 +34,7 @@ struct MessageView: View {
                 .background(bubbleColor)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .foregroundStyle(foregroundColor)
+                .textSelection(.enabled)
 
             if message.role != .user {
                 Spacer(minLength: 64)
