@@ -1,25 +1,34 @@
 import SwiftUI
 
+/// A SwiftUI view that displays the patient's entire medical record in a searchable, sectioned list.
+/// It uses a `NavigationSplitView` to create a master-detail interface with a sidebar for navigation.
 struct RecordsView: View {
+    // MARK: - Environment and State
+    
+    /// Access to the global application state, used to check if the database is ready.
     @EnvironmentObject var appState: AppState
+    /// The view model that fetches, holds, and filters the medical record data.
     @StateObject private var viewModel = RecordsViewModel()
     
-    // State to track which table is selected in the sidebar
+    /// State to track which table/section is currently selected in the sidebar.
     @State private var selection: String?
 
+    // MARK: - Body
+    
     var body: some View {
-        // 1. Use NavigationSplitView for a master-detail layout.
+        /// A three-column navigation interface, ideal for master-detail layouts on larger screens.
         NavigationSplitView {
-            // Sidebar (Master View)
+            // The first column (sidebar) for selecting a record category.
             List(viewModel.tableNames, id: \.self, selection: $selection) { tableName in
-                Text(tableName).tag(tableName)
+                Text(tableName).tag(tableName) // The tag is used to identify the selection.
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200)
             .navigationTitle("Tables")
         } detail: {
-            // Main Content (Detail View)
+            // The second column (main content) which displays the details.
             NavigationStack {
                 Group {
+                    // Conditionally display content based on the app's state.
                     if !appState.isDatabaseReady {
                         PlaceholderView(
                             imageName: "icloud.slash",
@@ -35,13 +44,14 @@ struct RecordsView: View {
                             subtitle: "The database is open but contains no patient records."
                         )
                     } else {
+                        // If everything is ready, display the main record list.
                         recordList
                     }
                 }
                 .navigationTitle("Medical Records")
                 .onAppear {
                     viewModel.setup(appState: appState)
-                    // Set an initial selection for the sidebar
+                    // Set an initial selection for the sidebar if one isn't already set.
                     if selection == nil {
                         selection = viewModel.tableNames.first
                     }
@@ -50,9 +60,14 @@ struct RecordsView: View {
         }
     }
     
+    // MARK: - Subviews
+    
+    /// The main scrollable list that displays all sections of the medical record.
     private var recordList: some View {
+        // `ScrollViewReader` provides a proxy to programmatically scroll to any view with an ID.
         ScrollViewReader { proxy in
             List {
+                // A dedicated section for the patient's demographic information.
                 Section("Patient Information") {
                     if let patient = viewModel.clinicalRecord?.patient {
                         VStack(alignment: .leading, spacing: 4) {
@@ -64,6 +79,8 @@ struct RecordsView: View {
                     }
                 }
                 
+                // Each `Group` contains a call to the `createSection` helper to build a section for a specific data type.
+                // This keeps the body of the List clean and organized.
                 Group {
                     createSection(title: "Problems",for: viewModel.filteredProblems) { problem in
                         Text(problem.problemName ?? "N/A").bold()
@@ -124,6 +141,7 @@ struct RecordsView: View {
                 }
             }
             .searchable(text: $viewModel.searchText, prompt: "Search All Records")
+            // When the sidebar selection changes, scroll the list to the corresponding section.
             .onChange(of: selection) { newSelection in
                 print("Selection changed to: \(newSelection ?? "nil")")
                 
@@ -131,6 +149,7 @@ struct RecordsView: View {
                 
                 print("Attempting to scroll to ID: '\(newSelection)'")
                 
+                // Use DispatchQueue to ensure the scroll happens after the UI has updated.
                 DispatchQueue.main.async {
                     withAnimation {
                         proxy.scrollTo(newSelection, anchor: .top)
@@ -140,14 +159,15 @@ struct RecordsView: View {
         }
     }
     
-    /// A helper function to reduce repetitive code when creating list sections.
+    /// A generic helper function to reduce repetitive code when creating the list sections.
+    /// It takes a title, a data array, and a closure for building the row content.
     @ViewBuilder
     private func createSection<T: MedicalRecord & Identifiable, Content: View>(
         title: String,
         for data: [T],
         @ViewBuilder rowContent: @escaping (T) -> Content
     ) -> some View {
-        // This helper remains unchanged.
+        // Only create the section if the corresponding data array is not empty.
         if !data.isEmpty {
             Section(title) {
                 ForEach(data) { item in
@@ -157,6 +177,7 @@ struct RecordsView: View {
                     .padding(.vertical, 4)
                 }
             }
+            // Assign an ID to the section that matches the sidebar selection tag.
             .id(title)
         }
     }

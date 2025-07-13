@@ -1,11 +1,20 @@
 import SwiftUI
 
+/// A SwiftUI view that provides the user interface for importing clinical data from XML files into a new SQLite database.
 struct ImporterView: View {
+    // MARK: - Environment and State
+    
+    /// Access to the global application state, used to set the database path upon successful import.
     @EnvironmentObject var appState: AppState
+    /// The view model that manages the state and logic for the import process.
     @StateObject private var importer = DataImporter()
+    /// A focus state variable to control keyboard focus, primarily for keyboard shortcuts.
     @FocusState private var isImporterFocused: Bool
 
+    // MARK: - Body
+    
     var body: some View {
+        /// A split view that divides the screen into a control panel on the left and a log view on the right.
         HSplitView {
             controlPanelView
                 .frame(minWidth: 350, idealWidth: 400, maxWidth: 500)
@@ -13,7 +22,8 @@ struct ImporterView: View {
             logView
         }
         .navigationTitle("Data Importer")
-        .onAppear { isImporterFocused = true }
+        .onAppear { isImporterFocused = true } // Set focus when the view appears.
+        // This hidden text field is a workaround to allow the view to receive focus for keyboard shortcuts.
         .overlay(
             TextField("", text: .constant(""))
                 .focused($isImporterFocused)
@@ -21,22 +31,26 @@ struct ImporterView: View {
         )
     }
 
-    /// The left panel containing all the import controls.
+    // MARK: - Subviews
+
+    /// The left panel of the split view, containing all the controls for the import process.
     private var controlPanelView: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("MyChart Importer")
                 .font(.largeTitle.bold())
                 .padding(.bottom, 10)
 
+            // Step 1: File Selection
             ImporterStepView(step: 1, title: "Select XML Files") {
                 fileSelectionView
             }
             
+            // Step 2: Database Destination
             ImporterStepView(step: 2, title: "Set Database Location") {
                 databaseDestinationView
             }
             
-            Spacer()
+            Spacer() // Pushes the import button to the bottom.
             
             importButtonView
         }
@@ -44,7 +58,7 @@ struct ImporterView: View {
         .background(Color(NSColor.windowBackgroundColor))
     }
     
-    /// The view for selecting and clearing XML files.
+    /// A view for selecting, displaying, and clearing the list of XML files to be imported.
     private var fileSelectionView: some View {
         VStack {
             ZStack {
@@ -56,18 +70,19 @@ struct ImporterView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
+                    // A scrollable list to display the names of the selected files.
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 2) { // Adjust spacing here
+                        VStack(alignment: .leading, spacing: 2) {
                             ForEach(importer.xmlFiles, id: \.self) { url in
                                 Text(url.lastPathComponent)
                                     .font(.callout)
                                     .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .padding(.vertical, 2) // Reduced vertical padding
+                                    .truncationMode(.middle) // Truncate long file names in the middle.
+                                    .padding(.vertical, 2)
                             }
                         }
                         .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading) // Align frame to the left
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -84,7 +99,7 @@ struct ImporterView: View {
         }
     }
 
-    /// The view for setting the database file destination.
+    /// A view for setting the destination file path for the new database.
     private var databaseDestinationView: some View {
         HStack {
             Image(systemName: "folder.badge.plus")
@@ -110,10 +125,11 @@ struct ImporterView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
     
-    /// The main button to start the import process, which turns into a progress indicator.
+    /// A view that conditionally displays either the "Start Import" button or a progress indicator.
     @ViewBuilder
     private var importButtonView: some View {
         if importer.isImporting {
+            // Show a progress indicator while the import is in progress.
             HStack(spacing: 10) {
                 ProgressView()
                     .scaleEffect(0.8)
@@ -124,8 +140,11 @@ struct ImporterView: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
         } else {
+            // Show the "Start Import" button.
             Button {
                 importer.startImport { successURL in
+                    // When the import completes, this closure is called.
+                    // If successful, it sets the new database path in the global app state.
                     if let url = successURL {
                         appState.setDatabasePath(url)
                     }
@@ -140,11 +159,12 @@ struct ImporterView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .disabled(!importer.canStartImport)
-            .keyboardShortcut(.return, modifiers: isImporterFocused ? [] : [.command, .shift]) // Only active when focused
+            // Allows using the Enter key to start the import when this view has focus.
+            .keyboardShortcut(.return, modifiers: isImporterFocused ? [] : [.command, .shift])
         }
     }
 
-    /// The right panel that displays the import log.
+    /// The right panel of the split view, which displays a running log of the import process.
     private var logView: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -159,6 +179,7 @@ struct ImporterView: View {
             
             Divider()
 
+            // A scroll view that automatically scrolls to the bottom as new log messages are added.
             ScrollViewReader { proxy in
                 ScrollView {
                     Text(importer.logOutput)
@@ -166,9 +187,10 @@ struct ImporterView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
-                        .id("logEnd")
+                        .id("logEnd") // An anchor at the end of the log text.
                 }
                 .onChange(of: importer.logOutput) { _ in
+                    // Whenever the log output changes, scroll to the anchor.
                     withAnimation { proxy.scrollTo("logEnd", anchor: .bottom) }
                 }
             }
@@ -179,10 +201,11 @@ struct ImporterView: View {
 
 // MARK: - Subviews
 
-/// A reusable view for creating a numbered step in the import process.
+/// A reusable view for creating a numbered step in a process, like the import workflow.
 private struct ImporterStepView<Content: View>: View {
     let step: Int
     let title: String
+    /// The content of the step, provided via a closure with a ViewBuilder.
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -200,10 +223,12 @@ private struct ImporterStepView<Content: View>: View {
             }
             
             content
-                .padding(.leading, 36) // Indent content under the title
+                .padding(.leading, 36) // Indent the content to align it under the title.
         }
     }
 }
+
+// MARK: - Preview
 
 #Preview {
     ImporterView()

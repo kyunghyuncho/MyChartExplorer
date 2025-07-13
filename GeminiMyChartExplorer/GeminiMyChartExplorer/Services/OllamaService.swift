@@ -1,37 +1,53 @@
+// Imports the fundamental Swift library for core functionalities.
 import Foundation
 
-// NOTE: These response structs are identical to your original ones and can be shared.
+// NOTE: These response structs are for decoding the JSON content *within* the AI's response.
+// They are identical to the ones used by other services and can be defined in a shared location.
 struct CategoriesResponse: Decodable { let categories: [String] }
 struct QueriesResponse: Decodable { let queries: [String] }
 
 
+/// An implementation of the `AdvisingService` protocol that uses a local Ollama instance to provide AI-driven insights.
+/// This allows for using open-source models running on the user's machine or local network.
 struct OllamaService : AdvisingService {
+    // The name of the Ollama model to use (e.g., "llama3", "mistral").
     private let model: String
+    // The base URL of the Ollama server (e.g., "http://localhost:11434").
     private let host: String
+    // The full URL for the '/api/generate' endpoint.
     private let apiURL: URL
     
+    /// Initializes the service.
+    /// - Parameters:
+    ///   - model: The name of the Ollama model to use. Defaults to "gemma3:4b-it-qat".
+    ///   - host: The host address of the Ollama server. Defaults to "http://localhost:11434".
     init(model: String = "gemma3:4b-it-qat",
          host: String = "http://localhost:11434") {
         self.model = model
         self.host = host
-        // We can safely force-unwrap here since the host is a known valid URL structure.
+        // The URL is constructed from the host string. We can safely force-unwrap here
+        // because the default and expected host strings are known to be valid URL formats.
         self.apiURL = URL(string: "\(host)/api/generate")!
     }
 
     // MARK: - Private API Request Handlers
 
-    /// Generic helper for requests that expect a JSON object in the response.
+    /// A generic helper function for making API requests to Ollama that expect a JSON object in the response.
+    /// - Parameter prompt: The text prompt to send to the model.
+    /// - Returns: A decoded object of the generic type `T`.
+    /// - Throws: An error if the request fails or the response cannot be parsed.
     private func makeAPIRequest<T: Decodable>(prompt: String) async throws -> T {
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Create the payload for the Ollama API with JSON format enabled.
+        // Create the payload for the Ollama API, specifying "json" as the format to ensure the model returns a valid JSON string.
         let payload = OllamaRequestPayload(model: self.model, prompt: prompt, format: "json")
         request.httpBody = try JSONEncoder().encode(payload)
         
         let (data, response) = try await URLSession.shared.data(for: request)
 
+        // Ensure the HTTP response is successful.
         guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
@@ -39,22 +55,25 @@ struct OllamaService : AdvisingService {
         // First, decode the main Ollama response wrapper.
         let ollamaResponse = try JSONDecoder().decode(OllamaAPIResponse.self, from: data)
         
-        // The actual content is a string inside the 'response' key. Convert it back to Data.
+        // The actual content we need is a string inside the 'response' key. Convert this string to Data.
         guard let responseStringData = ollamaResponse.response.data(using: .utf8) else {
             throw URLError(.cannotParseResponse)
         }
         
-        // Now, decode the nested JSON string into the target type <T>.
+        // Now, decode the nested JSON string (which is now Data) into the target generic type <T>.
         return try JSONDecoder().decode(T.self, from: responseStringData)
     }
 
-    /// Helper for requests that expect a plain text string in the response.
+    /// A helper function for making API requests that expect a plain text string in the response.
+    /// - Parameter prompt: The text prompt to send to the model.
+    /// - Returns: A string containing the model's plain text response.
+    /// - Throws: An error if the request fails.
     private func makeTextAPIRequest(prompt: String) async throws -> String {
         var request = URLRequest(url: apiURL)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Create the payload for the Ollama API for a plain text response.
+        // Create the payload for a plain text response (the 'format' property is omitted).
         let payload = OllamaRequestPayload(model: self.model, prompt: prompt)
         request.httpBody = try JSONEncoder().encode(payload)
 
@@ -64,12 +83,14 @@ struct OllamaService : AdvisingService {
             throw URLError(.badServerResponse)
         }
 
+        // Decode the Ollama response and return the 'response' string directly.
         let ollamaResponse = try JSONDecoder().decode(OllamaAPIResponse.self, from: data)
         return ollamaResponse.response
     }
     
     // MARK: - Public Service Methods
 
+    /// Asks the Ollama model to identify relevant medical data categories based on symptoms and a database schema.
     func getRelevantCategories(symptoms: String, schema: String) async throws -> [String] {
         let prompt = """
         A user is reporting the following symptoms: "\(symptoms)".
@@ -80,7 +101,7 @@ struct OllamaService : AdvisingService {
         Please respond with a JSON object containing a single key "categories" which is a list of strings. Each string should be a brief, user-friendly description of a relevant data category.
         For example: ["Recent blood pressure readings", "Current active medications", "History of surgeries related to the abdomen", "Recent clinical notes mentioning headaches"].
         """
-        // The <T> type is inferred by the compiler from the return type of this function.
+        // The generic type <CategoriesResponse> is inferred by the compiler from the function's return type signature.
         let response: CategoriesResponse = try await makeAPIRequest(prompt: prompt)
         
         print("Retrieved categories (Ollama): \(response.categories)")
@@ -88,6 +109,7 @@ struct OllamaService : AdvisingService {
         return response.categories
     }
     
+    /// Asks the Ollama model to generate specific SQLite queries based on the identified categories and schema.
     func getSQLQueries(categories: [String], schema: String) async throws -> [String] {
         let prompt = """
         Based on the need for the following information categories: \(categories),
@@ -109,6 +131,7 @@ struct OllamaService : AdvisingService {
         return response.queries
     }
     
+    /// Asks the Ollama model to provide a final, structured analysis based on the user's symptoms and retrieved medical data.
     func getFinalAdvice(symptoms: String, context: String) async throws -> String {
         let prompt = """
         You are a helpful and cautious AI medical assistant. A user has provided their symptoms and relevant data from their medical record.
@@ -129,8 +152,9 @@ struct OllamaService : AdvisingService {
         return try await makeTextAPIRequest(prompt: prompt)
     }
     
-    // MARK: - New Per-Note Summarizer
+    // MARK: - Per-Note Summarizer
     
+    /// Asks the Ollama model to summarize a single clinical note, focusing on details relevant to the user's symptoms.
     func summarize(note: String, symptoms: String) async throws -> String {
         let prompt = """
         A user has the following symptoms: "\(symptoms)".
@@ -139,62 +163,66 @@ struct OllamaService : AdvisingService {
         NOTE:
         "\(note)"
         """
-        // This uses your existing helper for plain text API calls
+        // This uses the helper for plain text API calls to get the summary.
         return try await makeTextAPIRequest(prompt: prompt)
     }
 
     // MARK: - Reworked Processing Logic
 
+    /// Processes the raw string of database results by summarizing clinical notes individually using the Ollama service.
     func processDBResults(results: String, symptoms: String) async throws -> ProcessedDBResult {
         print("🤖 Processing DB results with per-note summarization (Ollama)...")
         
-        // Split the raw string into separate query results
+        // Split the raw result string into sections, one for each query that was run.
         let allQuerySections = results.components(separatedBy: "--- Query:")
                                       .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         
         var fullContextBuilder = ""
         var notesForDisplayBuilder = ""
 
-        // Process each query result section
+        // Process each query result section individually.
         for section in allQuerySections {
             let sectionTitle = "--- Query:" + section.lines.first!
+            // Check if this section contains results from the 'notes' table by looking for key column names.
             let isNotesSection = section.lowercased().contains("notes") && section.lowercased().contains("notecontent")
 
             if !isNotesSection {
-                // If it's not a notes section, add it only to the full context
+                // If it's not a notes section, append the raw results to the context string.
                 fullContextBuilder.append(sectionTitle + "\n" + section.lines.dropFirst().joined(separator: "\n") + "\n\n")
             } else {
-                // If it IS a notes section, process it line by line
+                // If it IS a notes section, it requires special processing to summarize each note.
                 print("Found notes section. Summarizing each note...")
                 let lines = section.lines
-                guard lines.count > 1 else { continue }
+                guard lines.count > 1 else { continue } // Skip if the section is empty.
                 
-                let header = lines[1] // e.g., "note_date | note_type | note_content"
+                let header = lines[1] // The header line, e.g., "note_date | note_title | note_content"
+                // Find the index of the 'note_content' column to extract the note text.
                 let contentColumnIndex = header.components(separatedBy: "|").firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "note_content" }) ?? -1
 
-                // Add the header to both builders
+                // Add the header to both the full context and the display-only string.
                 fullContextBuilder.append(sectionTitle + "\n" + header + "\n")
                 notesForDisplayBuilder.append(sectionTitle + "\n" + header + "\n")
 
-                // Loop through data rows, starting from the third line
+                // Loop through each data row of the notes result.
                 for rowString in lines.dropFirst(2) {
                     var columns = rowString.components(separatedBy: "|")
                     
+                    // Check if the note content column was found and exists in this row.
                     if contentColumnIndex != -1 && columns.indices.contains(contentColumnIndex) {
                         let originalNote = columns[contentColumnIndex]
                         
-                        // Call the new summarize function for each note
+                        // Call the `summarize` function for each individual note.
                         let summary = try await summarize(note: originalNote, symptoms: symptoms)
                         
-                        // Replace the original note with "[Summary] ..."
+                        // Replace the full note content with its summary in the column array.
                         columns[contentColumnIndex] = " [Summary] \(summary)"
                         
-                        // Rebuild the row string
+                        // Rebuild the row string with the summary.
                         let summarizedRow = columns.joined(separator: "|")
                         fullContextBuilder.append(summarizedRow + "\n")
                         notesForDisplayBuilder.append(summarizedRow + "\n")
                     } else {
-                        // If there's no note content, just append the original row
+                        // If there's no note content, just append the original row to the full context.
                         fullContextBuilder.append(rowString + "\n")
                     }
                 }
@@ -205,6 +233,7 @@ struct OllamaService : AdvisingService {
         
         print("✅ DB results processed.")
 
+        // Return the final processed data in the required struct.
         return ProcessedDBResult(
             fullContext: fullContextBuilder,
             notesForDisplay: notesForDisplayBuilder.isEmpty ? "No relevant notes found." : notesForDisplayBuilder
@@ -214,15 +243,15 @@ struct OllamaService : AdvisingService {
 
 // MARK: - Helper Structs for Ollama API
 
-/// The JSON payload to be sent in the body of the request to Ollama.
+/// Represents the JSON payload to be sent in the body of a request to the Ollama API.
 private struct OllamaRequestPayload: Codable {
     let model: String
     let prompt: String
-    let stream: Bool = false // We want the full response at once
-    var format: String? = nil // Set to "json" to enforce JSON output
+    let stream: Bool = false // We want the full response at once, not a streaming response.
+    var format: String? = nil // Can be set to "json" to enforce JSON output from the model.
 }
 
-/// The top-level JSON response from the Ollama API.
+/// Represents the top-level JSON response from the Ollama API.
 private struct OllamaAPIResponse: Decodable {
     /// The actual text or JSON string generated by the model.
     let response: String
@@ -230,7 +259,7 @@ private struct OllamaAPIResponse: Decodable {
     let createdAt: String
     let done: Bool
 
-    // Maps Ollama's 'created_at' key to Swift's 'createdAt' property.
+    // Maps the 'created_at' key from the JSON to the Swift-standard 'createdAt' camelCase property.
     enum CodingKeys: String, CodingKey {
         case response, model, done
         case createdAt = "created_at"
