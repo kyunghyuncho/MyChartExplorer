@@ -128,7 +128,9 @@ struct OllamaService : AdvisingService {
         **IMPORTANT**: Strictly stick to the schema provided. Do not assume any additional columns or tables. Everyone's life depends on it.
         
         Generate the SQLite3 queries required to retrieve this information.
-        **IMPORTANT**: The queries must be very specific to retrieve only the minimal necessary data. Do NOT use `SELECT *`. Select only the specific columns needed. For any query on a table that has a `patientId` column, you **MUST** include `WHERE patientId = ?` in the query. For the `notes` table, use `WHERE noteContent LIKE '%symptom%'` to find relevant notes. Use other `WHERE` clauses with dates or other conditions to further narrow down results where appropriate.
+        **IMPORTANT**: The queries must be very specific to retrieve only the minimal necessary data. Do NOT use `SELECT *`. Select only the specific columns needed. For any query on a table that has a `patientId` column, you **MUST** include `WHERE patientId = ?` in the query. For the `notes` table, use `WHERE noteContent LIKE '%symptom%'` to find relevant notes. Use other `WHERE` clauses with dates or other conditions to further narrow down results where appropriate. Use `LIMIT` clauses to restrict the number of results to a reasonable amount (e.g., 5-10 recent entries). 
+        
+        **IMPORTANT**: Everyone's life depends on how short, succinct and specific retrieved data is. 
         
         Please respond with a JSON object containing a single key "queries" which is a list of strings, where each string is a single, valid SQLite3 query.
         Example of a good specific query: "SELECT medicationName, startDate FROM medications WHERE patientId = ? AND status = 'active' ORDER BY startDate DESC LIMIT 5;"
@@ -168,6 +170,9 @@ struct OllamaService : AdvisingService {
         let prompt = """
         A user has the following symptoms: "\(symptoms)".
         Summarize the following clinical note concisely, focusing only on details relevant to these symptoms.
+        It is extremely important to keep the summary short and focused on the most relevant information.
+        Keep the summary to a few sentences at most, ideally one or two.
+        Everyone's life depends on how short, succinct and specific the summary is.
 
         NOTE:
         "\(note)"
@@ -206,7 +211,7 @@ struct OllamaService : AdvisingService {
                 
                 let header = lines[1] // The header line, e.g., "note_date | note_title | note_content"
                 // Find the index of the 'note_content' column to extract the note text.
-                let contentColumnIndex = header.components(separatedBy: "|").firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "note_content" }) ?? -1
+                let contentColumnIndex = header.components(separatedBy: "|").firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "noteContent" }) ?? -1
 
                 // Add the header to both the full context and the display-only string.
                 fullContextBuilder.append(sectionTitle + "\n" + header + "\n")

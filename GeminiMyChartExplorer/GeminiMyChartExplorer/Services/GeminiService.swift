@@ -183,7 +183,7 @@ struct GeminiService: AdvisingService {
                 let lines = section.lines
                 guard lines.count > 1 else { continue } // Skip if the section is empty.
                 
-                let header = lines[1] // The header line, e.g., "note_date | note_title | note_content"
+                let header = lines[1] // The header line, e.g., "noteDate | noteTitle | noteContent"
                 // Find the index of the 'noteContent' column to extract the note text.
                 let contentColumnIndex = header.components(separatedBy: "|").firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "noteContent" }) ?? -1
 
