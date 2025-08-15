@@ -140,11 +140,44 @@ class AdvisorViewModel: ObservableObject {
                 // Step 3: Ask the AI to generate SQL queries for those categories.
                 let queries = try await service.getSQLQueries(categories: categories, schema: schema)
                 
-                // Step 4: Execute the queries against the local database.
-                let rawData = try await dbManager.executeQueries(queries)
-                
+                // Step 4: Execute the queries against the local database, with retry logic for Ollama.
+                var rawDataBuilder = ""
+                for query in queries {
+                    var currentQuery = query
+                    var lastError: Error?
+                    
+                    // Retry loop (up to 3 attempts)
+                    for attempt in 1...3 {
+                        do {
+                            let result = try await dbManager.executeQueries([currentQuery])
+                            rawDataBuilder.append(result)
+                            lastError = nil // Clear error on success
+                            break // Exit retry loop
+                        } catch {
+                            lastError = error
+                            // Only try to correct if it's Ollama and not the last attempt
+                            if let ollama = service as? OllamaService, attempt < 3 {
+                                conversation.append(ChatMessage(role: .system, text: "A query failed. Asking Ollama to correct it..."))
+                                do {
+                                    currentQuery = try await ollama.getCorrectedSQLQuery(failedQuery: currentQuery, errorMessage: error.localizedDescription, schema: schema)
+                                } catch {
+                                    // If correction fails, break and propagate the original DB error
+                                    break
+                                }
+                            } else {
+                                // If not Ollama or last attempt, break and propagate error
+                                break
+                            }
+                        }
+                    }
+                    
+                    if let error = lastError {
+                        throw error // Propagate the last error if all retries fail
+                    }
+                }
+
                 // Step 5: Send the raw data to the AI service for processing (e.g., summarizing notes).
-                let processedResult = try await service.processDBResults(results: rawData, symptoms: symptoms)
+                let processedResult = try await service.processDBResults(results: rawDataBuilder, symptoms: symptoms)
 
                 // Step 6: Store the processed results, ready for user confirmation and the final advice step.
                 self.fullContextForAdvice = processedResult.fullContext

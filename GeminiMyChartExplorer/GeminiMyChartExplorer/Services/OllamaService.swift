@@ -5,6 +5,7 @@ import Foundation
 // They are identical to the ones used by other services and can be defined in a shared location.
 struct CategoriesResponse: Decodable { let categories: [String] }
 struct QueriesResponse: Decodable { let queries: [String] }
+struct CorrectedQueryResponse: Decodable { let query: String }
 
 
 /// An implementation of the `AdvisingService` protocol that uses a local Ollama instance to provide AI-driven insights.
@@ -21,9 +22,9 @@ struct OllamaService : AdvisingService {
     
     /// Initializes the service.
     /// - Parameters:
-    ///   - model: The name of the Ollama model to use. Defaults to "gemma3:4b-it-qat".
+    ///   - model: The name of the Ollama model to use. Defaults to "gemma3:1b-it-qat".
     ///   - host: The host address of the Ollama server. Defaults to "http://localhost:11434".
-    init(model: String = "gemma3:4b-it-qat",
+    init(model: String = "gemma3:1b-it-qat",
          host: String = "http://localhost:11434") {
         self.model = model
         self.host = host
@@ -107,8 +108,7 @@ struct OllamaService : AdvisingService {
         The available tables and their schemas are:
         \(schema)
         
-        Please respond with a JSON object containing a single key "categories" which is a list of strings. Each string should be a brief, user-friendly description of a relevant data category.
-        For example: ["Recent blood pressure readings", "Current active medications", "History of surgeries related to the abdomen", "Recent clinical notes mentioning headaches"].
+        Please respond with a JSON object containing a single key "categories" which is a list of table names from the database schema above.
         """
         // The generic type <CategoriesResponse> is inferred by the compiler from the function's return type signature.
         let response: CategoriesResponse = try await makeAPIRequest(prompt: prompt)
@@ -125,15 +125,17 @@ struct OllamaService : AdvisingService {
         and the following database schema:
         \(schema)
         
-        **IMPORTANT**: Strictly stick to the schema provided. Do not assume any additional columns or tables. Everyone's life depends on it.
+        **IMPORTANT**: Strictly stick to the schema provided. Do not assume any additional columns or tables. Your and my lives depend on it.
         
         Generate the SQLite3 queries required to retrieve this information.
-        **IMPORTANT**: The queries must be very specific to retrieve only the minimal necessary data. Do NOT use `SELECT *`. Select only the specific columns needed. For any query on a table that has a `patientId` column, you **MUST** include `WHERE patientId = ?` in the query. For the `notes` table, use `WHERE noteContent LIKE '%symptom%'` to find relevant notes. Use other `WHERE` clauses with dates or other conditions to further narrow down results where appropriate. Use `LIMIT` clauses to restrict the number of results to a reasonable amount (e.g., 5-10 recent entries). 
+        **IMPORTANT**: The queries must be very specific to retrieve only the minimal but sufficient data. Avoid using `SELECT *` too often. Select only the specific columns needed. For any query on a table that has a `patientId` column, you **MUST** include `WHERE patientId = ?` in the query. For the `notes` table, use `WHERE noteContent LIKE '%symptom%'` to find relevant notes. Use other `WHERE` clauses with dates or other conditions to further narrow down results where appropriate. Use `LIMIT` clauses to restrict the number of results to a reasonable amount (e.g., 5-10 recent entries). 
         
-        **IMPORTANT**: Everyone's life depends on how short, succinct and specific retrieved data is. 
+        **IMPORTANT**: Our lives depend on how short, succinct and specific retrieved data is. 
         
         Please respond with a JSON object containing a single key "queries" which is a list of strings, where each string is a single, valid SQLite3 query.
-        Example of a good specific query: "SELECT medicationName, startDate FROM medications WHERE patientId = ? AND status = 'active' ORDER BY startDate DESC LIMIT 5;"
+        Example of good specific queries: "SELECT medicationName, startDate FROM medications WHERE patientId = ? AND status = 'active' ORDER BY startDate DESC LIMIT 5;"
+        Do NOT simply copy this example as is. It will not work for our specific database schema and needs.
+        It is very likely you must create multiple queries to cover all relevant categories.
         """
         let response: QueriesResponse = try await makeAPIRequest(prompt: prompt)
         
@@ -142,6 +144,26 @@ struct OllamaService : AdvisingService {
         return response.queries
     }
     
+    /// Asks the Ollama model to correct a failed SQL query based on the error message.
+    func getCorrectedSQLQuery(failedQuery: String, errorMessage: String, schema: String) async throws -> String {
+        print("Attempting to correct failed SQL query...")
+        let prompt = """
+        The following SQLite3 query failed to execute:
+        `\(failedQuery)`
+
+        It produced this error:
+        `\(errorMessage)`
+
+        Here is the database schema again for reference:
+        \(schema)
+
+        Please correct the query. Respond with a JSON object containing a single key "query" with the corrected, valid SQLite3 query string. It must run correctly this time in order to ensure we serve the patient better!
+        """
+        let response: CorrectedQueryResponse = try await makeAPIRequest(prompt: prompt)
+        print("Received corrected query: \(response.query)")
+        return response.query
+    }
+
     /// Asks the Ollama model to provide a final, structured analysis based on the user's symptoms and retrieved medical data.
     func getFinalAdvice(symptoms: String, context: String) async throws -> String {
         let prompt = """
@@ -183,60 +205,46 @@ struct OllamaService : AdvisingService {
 
     // MARK: - Reworked Processing Logic
 
-    /// Processes the raw string of database results by summarizing clinical notes individually using the Ollama service.
+    /// Processes the raw string of database results by summarizing clinical notes and squashing duplicates in other data.
     func processDBResults(results: String, symptoms: String) async throws -> ProcessedDBResult {
-        print("🤖 Processing DB results with per-note summarization (Ollama)...")
+        print("🤖 Processing DB results with per-note summarization and duplicate squashing (Ollama)...")
         
-        // Split the raw result string into sections, one for each query that was run.
         let allQuerySections = results.components(separatedBy: "--- Query:")
                                       .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         
         var fullContextBuilder = ""
         var notesForDisplayBuilder = ""
 
-        // Process each query result section individually.
         for section in allQuerySections {
             let sectionTitle = "--- Query:" + section.lines.first!
-            // Check if this section contains results from the 'notes' table by looking for key column names.
             let isNotesSection = section.lowercased().contains("notes") && section.lowercased().contains("notecontent")
 
             if !isNotesSection {
-                // If it's not a notes section, append the raw results to the context string.
-                fullContextBuilder.append(sectionTitle + "\n" + section.lines.dropFirst().joined(separator: "\n") + "\n\n")
+                let squashedResult = squashDuplicateRows(in: section)
+                fullContextBuilder.append(sectionTitle + "\n" + squashedResult + "\n\n")
             } else {
-                // If it IS a notes section, it requires special processing to summarize each note.
                 print("Found notes section. Summarizing each note...")
                 let lines = section.lines
-                guard lines.count > 1 else { continue } // Skip if the section is empty.
+                guard lines.count > 1 else { continue }
                 
-                let header = lines[1] // The header line, e.g., "note_date | note_title | note_content"
-                // Find the index of the 'note_content' column to extract the note text.
-                let contentColumnIndex = header.components(separatedBy: "|").firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "noteContent" }) ?? -1
+                let header = lines[1]
+                let contentColumnIndex = header.components(separatedBy: "|").firstIndex { $0.trimmingCharacters(in: .whitespaces) == "noteContent" } ?? -1
 
-                // Add the header to both the full context and the display-only string.
                 fullContextBuilder.append(sectionTitle + "\n" + header + "\n")
                 notesForDisplayBuilder.append(sectionTitle + "\n" + header + "\n")
 
-                // Loop through each data row of the notes result.
                 for rowString in lines.dropFirst(2) {
                     var columns = rowString.components(separatedBy: "|")
                     
-                    // Check if the note content column was found and exists in this row.
                     if contentColumnIndex != -1 && columns.indices.contains(contentColumnIndex) {
                         let originalNote = columns[contentColumnIndex]
-                        
-                        // Call the `summarize` function for each individual note.
                         let summary = try await summarize(note: originalNote, symptoms: symptoms)
-                        
-                        // Replace the full note content with its summary in the column array.
                         columns[contentColumnIndex] = " [Summary] \(summary)"
                         
-                        // Rebuild the row string with the summary.
                         let summarizedRow = columns.joined(separator: "|")
                         fullContextBuilder.append(summarizedRow + "\n")
                         notesForDisplayBuilder.append(summarizedRow + "\n")
                     } else {
-                        // If there's no note content, just append the original row to the full context.
                         fullContextBuilder.append(rowString + "\n")
                     }
                 }
@@ -247,11 +255,38 @@ struct OllamaService : AdvisingService {
         
         print("✅ DB results processed.")
 
-        // Return the final processed data in the required struct.
         return ProcessedDBResult(
             fullContext: fullContextBuilder,
             notesForDisplay: notesForDisplayBuilder.isEmpty ? "No relevant notes found." : notesForDisplayBuilder
         )
+    }
+    
+    /// A helper function to identify and consolidate duplicate rows within a single query result section.
+    /// - Parameter section: The string content of a single query result.
+    /// - Returns: A string with duplicate rows consolidated and counted.
+    private func squashDuplicateRows(in section: String) -> String {
+        let lines = section.lines.dropFirst().filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard let header = lines.first else { return "" }
+
+        let dataRows = lines.dropFirst()
+
+        var rowCounts: [String: Int] = [:]
+        var orderedRows: [String] = []
+
+        for row in dataRows {
+            let trimmedRow = row.trimmingCharacters(in: .whitespaces)
+            if rowCounts[trimmedRow] == nil {
+                orderedRows.append(trimmedRow)
+            }
+            rowCounts[trimmedRow, default: 0] += 1
+        }
+
+        let squashedRows = orderedRows.map { row -> String in
+            let count = rowCounts[row]!
+            return count > 1 ? "\(row) (x\(count))" : row
+        }
+
+        return ([header] + squashedRows).joined(separator: "\n")
     }
 }
 
