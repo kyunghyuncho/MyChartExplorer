@@ -282,8 +282,8 @@ class DatabaseManager {
                         allResults.append("\(resultHeader)\n\(resultBody)")
                     }
                 } catch {
-                    // If a query fails, append an error message to the results.
-                    allResults.append("--- Error running query: \(query) ---\nError: \(error.localizedDescription)")
+                    // If a query fails, do not add any results, just log the error.
+                    print("--- Error running query: \(query) ---\nError: \(error.localizedDescription)")
                 }
             }
         }
