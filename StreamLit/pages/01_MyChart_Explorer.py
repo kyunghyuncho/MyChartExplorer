@@ -3,11 +3,12 @@
 
 # Import necessary libraries
 import streamlit as st
+import re
 st.set_page_config(page_title="MyChart Explorer", layout="wide")
 from modules.database import get_session, get_db_engine
 from modules.llm_service import LLMService
 from modules.conversations import list_conversations, save_conversation, load_conversation, delete_conversation
-from modules.config import load_configuration
+from modules.config import load_configuration, save_configuration
 
 # Set the title of the page
 st.title("MyChart Explorer")
@@ -35,8 +36,31 @@ else:
     st.session_state.setdefault('pending_question', None)
     st.session_state.setdefault('consult_ready', False)
 
-    # Sidebar: conversation management
+    # Sidebar: conversation management and backend selection
     with st.sidebar:
+        st.subheader("LLM Backend")
+
+        # Ensure llm_provider exists in session_state before rendering widget
+        if "llm_provider" not in st.session_state:
+            st.session_state["llm_provider"] = "ollama"
+
+        # Callback to persist selection without touching widget keys
+        def _persist_backend_choice():
+            # Persist only the provider; avoid mutating unrelated widget state
+            save_configuration({"llm_provider": st.session_state["llm_provider"]})
+            # A toast is fine; Streamlit reruns after callbacks automatically
+            st.toast(f"Backend: {st.session_state['llm_provider'].capitalize()}")
+
+        # Bind widget directly to session_state key to avoid index/default clashes
+        st.radio(
+            "Choose a backend:",
+            ("ollama", "gemini"),
+            key="llm_provider",
+            on_change=_persist_backend_choice,
+        )
+
+        st.markdown("---")
+
         st.subheader("Conversations")
         convs = list_conversations()
         options = [f"{c['title']} ({c['id']})" for c in convs]
@@ -194,39 +218,65 @@ else:
                         st.error(f"An error occurred during consultation: {e}")
     
     with col2:
-        # Right column: Patient context and retrieved data (this will be made sticky)
-        st.subheader("Patient Context")
-        ctx = llm_service.get_patient_context()
-        if ctx:
-            # Two rows of simple metrics
-            cols_top = st.columns(2)
-            cols_top[0].metric("Age", ctx.get("age", "—"))
-            cols_top[1].metric("Gender", ctx.get("gender", "—"))
-            
-            cols_middle = st.columns(2)
-            cols_middle[0].metric("Race", ctx.get("race", "—"))
-            cols_middle[1].metric("Ethnicity", ctx.get("ethnicity", "—"))
-            
-            st.metric("DOB", ctx.get("dob", "—"))
-            st.metric("Deceased", "Yes" if ctx.get("deceased") else "No")
-        else:
-            st.caption("No demographics available.")
-    
-        # Retrieved data preview
+        # Right column: A dashboard-style display for patient context and retrieved data.
+        
+        # --- Patient Information Card ---
+        # This container provides a visually distinct "card" for key patient demographics.
+        with st.container(border=True):
+            st.subheader("Patient Context")
+            ctx = llm_service.get_patient_context()
+            if ctx:
+                # Display demographics in a compact, two-column layout.
+                info_col1, info_col2 = st.columns(2)
+                info_col1.metric("Age", ctx.get("age", "—"))
+                info_col2.metric("Gender", ctx.get("gender", "—"))
+                info_col1.metric("Race", ctx.get("race", "—"))
+                info_col2.metric("Ethnicity", ctx.get("ethnicity", "—"))
+                st.metric("DOB", ctx.get("dob", "—"))
+            else:
+                st.caption("No demographics available.")
+
+        st.markdown("---") # Visual separator
+
+        # --- Tabbed Retrieved Data ---
         st.subheader("Retrieved Data")
         batch = st.session_state.get('last_batch')
+        
         if batch:
-            for idx, item in enumerate(batch, start=1):
-                sql = item.get('sql')
-                rows = item.get('rows') or []
+            # Prepare tab labels with a summary of results.
+            # Example: "Vitals (5 rows)" or "Meds (Error)"
+            tab_labels = []
+            for idx, item in enumerate(batch):
+                rows = item.get('rows', [])
                 error = item.get('error')
-                title = f"Query {idx} — {len(rows)} row(s)" if not error else f"Query {idx} — error"
-                with st.expander(title, expanded=False):
-                    if sql:
-                        st.code(sql, language="sql")
+                # Try to infer a table name from the SQL for a more descriptive label.
+                table_name = "Data"
+                if item.get('sql'):
+                    match = re.search(r"FROM\s+(\w+)", item['sql'], re.IGNORECASE)
+                    if match:
+                        table_name = match.group(1).capitalize()
+                
+                if error:
+                    label = f"{table_name} (Error)"
+                else:
+                    label = f"{table_name} ({len(rows)})"
+                tab_labels.append(label)
+
+            # Create the tabs.
+            tabs = st.tabs(tab_labels)
+            
+            # Populate each tab with the corresponding query result.
+            for i, tab in enumerate(tabs):
+                with tab:
+                    item = batch[i]
+                    sql = item.get('sql')
+                    rows = item.get('rows') or []
+                    error = item.get('error')
+
                     if error:
-                        st.error(error)
+                        st.error(f"An error occurred in this query:\n\n{error}")
                     elif rows:
+                        # Display the data table.
                         try:
                             import pandas as pd
                             if hasattr(rows[0], "_mapping"):
@@ -235,10 +285,17 @@ else:
                                 df = pd.DataFrame(data, columns=cols)
                             else:
                                 df = pd.DataFrame([tuple(r) for r in rows])
-                            st.dataframe(df, use_container_width=True, height=300)
-                        except Exception:
+                            st.dataframe(df, use_container_width=True)
+                        except Exception as e:
                             st.text("\n".join(str(r) for r in rows[:50]))
+                            st.error(f"Could not render DataFrame: {e}")
                     else:
-                        st.caption("No rows.")
+                        st.caption("No rows returned for this query.")
+
+                    # Include the SQL query in a collapsible expander.
+                    if sql:
+                        with st.expander("View SQL Query"):
+                            st.code(sql, language="sql")
         else:
+            # Default message when no data has been retrieved yet.
             st.info("No data retrieved yet. Ask a question to see relevant records.")

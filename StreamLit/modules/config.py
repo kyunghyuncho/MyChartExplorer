@@ -67,9 +67,12 @@ def load_configuration() -> dict:
     Also syncs the loaded values back into session_state so other pages see them.
     """
     defaults = _default_config()
-    file_cfg = _read_file_config()
-    # session values take precedence during this run if already set
-    session_overlay = {k: st.session_state.get(k) for k in defaults.keys() if k in st.session_state}
+    allowed_keys = set(defaults.keys())
+    file_cfg_raw = _read_file_config()
+    # Only allow known config keys from disk
+    file_cfg = {k: v for k, v in (file_cfg_raw or {}).items() if k in allowed_keys}
+    # Session values take precedence during this run if already set (only known keys)
+    session_overlay = {k: st.session_state.get(k) for k in allowed_keys if k in st.session_state}
     cfg = _merge(defaults, _merge(file_cfg, session_overlay))
 
     # Sync into session_state for consistent access across pages
@@ -79,16 +82,20 @@ def load_configuration() -> dict:
 
 
 def save_configuration(config: dict) -> None:
-    """Save config to disk and update session_state.
+    """Save config to disk.
 
     Note: This stores values in plain text JSON inside the project directory.
     For secrets, consider environment variables or Streamlit's secrets for read-only.
+    This function intentionally does NOT mutate session_state to avoid widget
+    value conflicts. Callers should update session_state explicitly before
+    invoking this function.
     """
     # Merge with existing on disk to avoid dropping unknown keys
-    current = _merge(_default_config(), _read_file_config())
-    new_cfg = _merge(current, config or {})
+    defaults = _default_config()
+    allowed_keys = set(defaults.keys())
+    current_raw = _merge(defaults, _read_file_config())
+    current = {k: v for k, v in current_raw.items() if k in allowed_keys}
+    # Only persist known keys
+    filtered = {k: v for k, v in (config or {}).items() if k in allowed_keys}
+    new_cfg = _merge(current, filtered)
     _write_file_config(new_cfg)
-
-    # Reflect into session_state immediately
-    for k, v in new_cfg.items():
-        st.session_state[k] = v
