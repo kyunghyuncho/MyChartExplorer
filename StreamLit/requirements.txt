@@ -1,0 +1,9 @@
+streamlit
+pandas
+sqlalchemy
+google-generativeai
+paramiko
+sshtunnel
+beautifulsoup4
+lxml
+requests
