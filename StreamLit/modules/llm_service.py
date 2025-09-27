@@ -21,7 +21,7 @@ class LLMService:
         """
         # Store the database engine
         self.db_engine = db_engine
-        # Load the configuration from Streamlit secrets or session state
+        # Load the configuration snapshot; note we will re-read live values when needed
         self.config = self._load_config()
 
     def _load_config(self):
@@ -266,12 +266,13 @@ class LLMService:
     - Avoid UNIONs that add label columns; return raw rows from the relevant table(s).
         """
         # Use the configured LLM provider to generate the SQL
-        if self.config["llm_provider"] == "ollama":
+        cfg = self._load_config()
+        if cfg["llm_provider"] == "ollama":
             # Generate SQL using Ollama
-            return self._query_ollama(prompt)
-        elif self.config["llm_provider"] == "gemini":
+            return self._query_ollama(prompt, cfg)
+        elif cfg["llm_provider"] == "gemini":
             # Generate SQL using Gemini
-            return self._query_gemini(prompt)
+            return self._query_gemini(prompt, cfg)
         else:
             # Raise an error if the provider is not supported
             raise ValueError("Unsupported LLM provider")
@@ -302,10 +303,11 @@ Retrieval-only rules (strict):
 - Use only column names present in the schema; do not rename columns unnecessarily.
 - Avoid UNIONs that add label columns; return raw rows from the relevant table(s).
 """
-        if self.config["llm_provider"] == "ollama":
-            return self._query_ollama(prompt)
-        elif self.config["llm_provider"] == "gemini":
-            return self._query_gemini(prompt)
+        cfg = self._load_config()
+        if cfg["llm_provider"] == "ollama":
+            return self._query_ollama(prompt, cfg)
+        elif cfg["llm_provider"] == "gemini":
+            return self._query_gemini(prompt, cfg)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -366,9 +368,10 @@ Return a single valid SQLite SELECT or WITH query only. No markdown, no code fen
 Do NOT use parameters (? or :name); inline literal values only.
 {('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
             """
-            raw_sql = (self._query_ollama(retry_prompt)
-                       if self.config["llm_provider"] == "ollama"
-                       else self._query_gemini(retry_prompt))
+            cfg = self._load_config()
+            raw_sql = (self._query_ollama(retry_prompt, cfg)
+                       if cfg["llm_provider"] == "ollama"
+                       else self._query_gemini(retry_prompt, cfg))
             sql_query = self._sanitize_sql(raw_sql)
             sql_query = self._inline_patient_id(sql_query)
             if not sql_query:
@@ -393,9 +396,10 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
 {('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
 {self._get_db_schema()}
             """
-            raw_sql2 = (self._query_ollama(retry_prompt)
-                        if self.config["llm_provider"] == "ollama"
-                        else self._query_gemini(retry_prompt))
+            cfg = self._load_config()
+            raw_sql2 = (self._query_ollama(retry_prompt, cfg)
+                        if cfg["llm_provider"] == "ollama"
+                        else self._query_gemini(retry_prompt, cfg))
             sql2 = self._sanitize_sql(raw_sql2)
             sql2 = self._inline_patient_id(sql2)
             if not sql2:
@@ -429,9 +433,10 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
 {('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
 {self._get_db_schema()}
                     """
-                    raw_sql2 = (self._query_ollama(retry_prompt)
-                                if self.config["llm_provider"] == "ollama"
-                                else self._query_gemini(retry_prompt))
+                    cfg = self._load_config()
+                    raw_sql2 = (self._query_ollama(retry_prompt, cfg)
+                                if cfg["llm_provider"] == "ollama"
+                                else self._query_gemini(retry_prompt, cfg))
                     sql2 = self._sanitize_sql(raw_sql2)
                     sql2 = self._inline_patient_id(sql2)
                     if sql2:
@@ -460,10 +465,11 @@ Based on the following data from the user's medical records:
 
 Answer the following question: "{question}"
 """
-        if self.config["llm_provider"] == "ollama":
-            return self._query_ollama(final_prompt)
-        elif self.config["llm_provider"] == "gemini":
-            return self._query_gemini(final_prompt)
+        cfg = self._load_config()
+        if cfg["llm_provider"] == "ollama":
+            return self._query_ollama(final_prompt, cfg)
+        elif cfg["llm_provider"] == "gemini":
+            return self._query_gemini(final_prompt, cfg)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -487,10 +493,11 @@ Based on the following data from the user's medical records (multiple subsets):
 
 Answer the following question: "{question}"
 """
-        if self.config["llm_provider"] == "ollama":
-            return self._query_ollama(final_prompt)
-        elif self.config["llm_provider"] == "gemini":
-            return self._query_gemini(final_prompt)
+        cfg = self._load_config()
+        if cfg["llm_provider"] == "ollama":
+            return self._query_ollama(final_prompt, cfg)
+        elif cfg["llm_provider"] == "gemini":
+            return self._query_gemini(final_prompt, cfg)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -514,31 +521,33 @@ Answer the following question: "{question}"
             # Raise an error if the provider is not supported
             raise ValueError("Unsupported LLM provider")
 
-    def _query_ollama(self, prompt):
+    def _query_ollama(self, prompt, cfg=None):
         """
         Queries the Ollama API.
         """
+        cfg = cfg or self._load_config()
         # The payload for the Ollama API
         payload = {
-            "model": self.config["ollama_model"],
+            "model": cfg["ollama_model"],
             "prompt": prompt,
             "stream": False
         }
         # Make a POST request to the Ollama API
-        response = requests.post(f"{self.config['ollama_url']}/api/generate", json=payload)
+        response = requests.post(f"{cfg['ollama_url']}/api/generate", json=payload)
         # Raise an exception if the request was unsuccessful
         response.raise_for_status()
         # Parse the JSON response and return the content
         return response.json()["response"].strip()
 
-    def _query_gemini(self, prompt):
+    def _query_gemini(self, prompt, cfg=None):
         """
         Queries the Gemini API.
         """
+        cfg = cfg or self._load_config()
         # Configure the Gemini API with the API key
-        genai.configure(api_key=self.config["gemini_api_key"])
+        genai.configure(api_key=cfg["gemini_api_key"])
         # Create a generative model instance
-        model = genai.GenerativeModel(self.config["gemini_model"])
+        model = genai.GenerativeModel(cfg["gemini_model"])
         # Generate content using the model
         response = model.generate_content(prompt)
         # Return the generated text

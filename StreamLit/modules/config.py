@@ -21,7 +21,7 @@ def _default_config() -> dict:
         "ollama_url": "http://localhost:11434",
         "ollama_model": "llama3",
         "gemini_api_key": "",
-        "gemini_model": "gemini-1.5-flash",
+    "gemini_model": "gemini-2.5-pro",
         "ssh_host": "",
         "ssh_port": 22,
         "ssh_user": "",

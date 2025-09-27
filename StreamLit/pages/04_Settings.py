@@ -59,8 +59,11 @@ with st.form("settings_form"):
             "remote_ollama_url": remote_ollama_url,
             "local_tunnel_port": int(local_tunnel_port),
         }
-        # Save the new configuration
+        # Save the new configuration to disk
         save_configuration(new_config)
+        # Also reflect saved values into session_state so other pages pick them up immediately
+        for k, v in new_config.items():
+            st.session_state[k] = v
         # Show a success message
         st.success("Settings saved successfully!")
 
