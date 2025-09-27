@@ -67,12 +67,69 @@ else:
             if del_choice and del_choice != "—":
                 if st.button("Delete selected"):
                     delete_conversation(del_choice)
-                    st.experimental_rerun()
+                    st.rerun()
 
-    # Vertical split: Conversation (top) and Retrieved info (bottom)
-    st.markdown("---")
-    with st.container():
-        # Top: conversation
+    # Two-column layout: Conversation (left) and Sticky info panel (right)
+    
+    # Inject CSS to make the right column sticky
+    st.markdown("""
+    <style>
+    /* Target the second column (right panel) and make it sticky */
+    .block-container .element-container:has([data-testid="column"]:nth-child(2)) [data-testid="column"]:nth-child(2) {
+        position: sticky !important;
+        top: 50px !important;
+        height: calc(100vh - 100px) !important;
+        overflow-y: auto !important;
+        padding-right: 1rem !important;
+        border-left: 1px solid #e6e6e6 !important;
+        padding-left: 1rem !important;
+        background-color: white !important;
+        z-index: 1 !important;
+    }
+    
+    /* Alternative selector for broader compatibility */
+    div[data-testid="column"]:nth-of-type(2) {
+        position: sticky !important;
+        top: 50px !important;
+        height: calc(100vh - 100px) !important;
+        overflow-y: auto !important;
+        padding-right: 1rem !important;
+        border-left: 1px solid #e6e6e6 !important;
+        padding-left: 1rem !important;
+        background-color: white !important;
+        z-index: 1 !important;
+    }
+    
+    /* More specific selector targeting columns within the main content */
+    .main .block-container > div > div > div[data-testid="column"]:nth-child(2) {
+        position: sticky !important;
+        top: 50px !important;
+        height: calc(100vh - 100px) !important;
+        overflow-y: auto !important;
+        padding-right: 1rem !important;
+        border-left: 1px solid #e6e6e6 !important;
+        padding-left: 1rem !important;
+        background-color: white !important;
+        z-index: 1 !important;
+    }
+    
+    /* Ensure the main content area allows for proper scrolling */
+    .main .block-container {
+        padding-top: 2rem !important;
+        max-width: 100% !important;
+    }
+    
+    /* Ensure left column has proper spacing */
+    div[data-testid="column"]:nth-of-type(1) {
+        padding-right: 2rem !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([7, 3])  # 70% left, 30% right
+    
+    with col1:
+        # Left column: Conversation
         st.subheader("Conversation")
         # Render history
         for msg in st.session_state['chat_history']:
@@ -104,58 +161,59 @@ else:
             except Exception as e:
                 st.error(f"An error occurred while retrieving data: {e}")
         
-        # Only show Consult when we have retrieved data for a question
-        # Reset conversation button
-        if st.button("Reset conversation"):
-            st.session_state['chat_history'] = []
-            st.session_state['last_sql'] = None
-            st.session_state['last_rows'] = None
-            st.session_state['last_batch'] = None
-            st.session_state['pending_question'] = None
-            st.session_state['consult_ready'] = False
-            st.rerun()
+        # Controls
+        col1_a, col1_b = st.columns(2)
+        with col1_a:
+            if st.button("Reset conversation"):
+                st.session_state['chat_history'] = []
+                st.session_state['last_sql'] = None
+                st.session_state['last_rows'] = None
+                st.session_state['last_batch'] = None
+                st.session_state['pending_question'] = None
+                st.session_state['consult_ready'] = False
+                st.rerun()
         
-        # Offer Consult action when rows are ready
-        if st.session_state.get('consult_ready') and st.session_state.get('pending_question'):
-            # Single Consult action (button only)
-            if st.button("Consult", type="primary", key="consult_btn"):
-                try:
-                    with st.spinner("Consulting…"):
-                        rows_list = []
-                        if st.session_state.get('last_batch'):
-                            rows_list = [item.get('rows', []) for item in st.session_state['last_batch']]
-                        else:
-                            rows_list = [st.session_state.get('last_rows') or []]
-                        answer = llm_service.consult_multi(st.session_state['pending_question'], rows_list)
-                    st.session_state['chat_history'].append({"role": "assistant", "content": answer})
-                    # Clear pending state but keep last retrieval visible in the bottom panel
-                    st.session_state['pending_question'] = None
-                    st.session_state['consult_ready'] = False
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"An error occurred during consultation: {e}")
+        with col1_b:
+            # Offer Consult action when rows are ready
+            if st.session_state.get('consult_ready') and st.session_state.get('pending_question'):
+                if st.button("Consult", type="primary", key="consult_btn"):
+                    try:
+                        with st.spinner("Consulting…"):
+                            rows_list = []
+                            if st.session_state.get('last_batch'):
+                                rows_list = [item.get('rows', []) for item in st.session_state['last_batch']]
+                            else:
+                                rows_list = [st.session_state.get('last_rows') or []]
+                            answer = llm_service.consult_multi(st.session_state['pending_question'], rows_list)
+                        st.session_state['chat_history'].append({"role": "assistant", "content": answer})
+                        # Clear pending state but keep last retrieval visible in the right panel
+                        st.session_state['pending_question'] = None
+                        st.session_state['consult_ready'] = False
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"An error occurred during consultation: {e}")
     
-    # Bottom: retrieved data panel
-    st.markdown("---")
-    with st.container():
-        st.subheader("Patient context")
+    with col2:
+        # Right column: Patient context and retrieved data (this will be made sticky)
+        st.subheader("Patient Context")
         ctx = llm_service.get_patient_context()
         if ctx:
             # Two rows of simple metrics
-            cols_top = st.columns(3)
+            cols_top = st.columns(2)
             cols_top[0].metric("Age", ctx.get("age", "—"))
             cols_top[1].metric("Gender", ctx.get("gender", "—"))
-            cols_top[2].metric("DOB", ctx.get("dob", "—"))
-    
-            cols_bottom = st.columns(3)
-            cols_bottom[0].metric("Race", ctx.get("race", "—"))
-            cols_bottom[1].metric("Ethnicity", ctx.get("ethnicity", "—"))
-            cols_bottom[2].metric("Deceased", "Yes" if ctx.get("deceased") else "No")
+            
+            cols_middle = st.columns(2)
+            cols_middle[0].metric("Race", ctx.get("race", "—"))
+            cols_middle[1].metric("Ethnicity", ctx.get("ethnicity", "—"))
+            
+            st.metric("DOB", ctx.get("dob", "—"))
+            st.metric("Deceased", "Yes" if ctx.get("deceased") else "No")
         else:
             st.caption("No demographics available.")
     
         # Retrieved data preview
-        st.subheader("Retrieved data preview")
+        st.subheader("Retrieved Data")
         batch = st.session_state.get('last_batch')
         if batch:
             for idx, item in enumerate(batch, start=1):
@@ -183,6 +241,4 @@ else:
                     else:
                         st.caption("No rows.")
         else:
-            st.info("No data retrieved yet. Ask a question above to preview relevant records, then press Consult.")
-
-    # end of vertical split
+            st.info("No data retrieved yet. Ask a question to see relevant records.")
