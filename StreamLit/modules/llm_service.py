@@ -6,6 +6,7 @@ import streamlit as st
 import google.generativeai as genai
 import requests
 import json
+import re
 from sqlalchemy import text, inspect
 from datetime import date, datetime
 
@@ -241,6 +242,9 @@ class LLMService:
         # Get the database schema
         schema = self._get_db_schema()
         # Create the prompt for the LLM
+        # Try to include current patient_id to discourage parameters
+        pid = self._get_current_patient_id()
+        pid_hint = f"Use patient_id = {pid} where relevant." if pid is not None else "Filter correctly by patient when needed."
         prompt = f"""
         Given the following database schema:
         {schema}
@@ -251,6 +255,15 @@ class LLMService:
     - No explanations
     - No markdown
     - No code fences
+    - Do NOT use parameters (? or :name); inline literal values only.
+    - {pid_hint}
+    Retrieval-only rules (strict):
+    - Retrieve existing fields only; do not generate or fabricate values.
+    - Do NOT create synthetic columns from constant strings (e.g., 'Immunization' AS event_type).
+    - Do NOT summarize or aggregate unless the question explicitly requests it (avoid GROUP BY/COUNT/AVG/etc.).
+    - Prefer filtering with patient_id where applicable.
+    - Use only column names present in the schema; do not rename columns unnecessarily.
+    - Avoid UNIONs that add label columns; return raw rows from the relevant table(s).
         """
         # Use the configured LLM provider to generate the SQL
         if self.config["llm_provider"] == "ollama":
@@ -263,10 +276,69 @@ class LLMService:
             # Raise an error if the provider is not supported
             raise ValueError("Unsupported LLM provider")
 
+    def _generate_sql_batch(self, question: str, max_queries: int = 4) -> str:
+        """Ask the LLM for multiple small, focused SQL queries as a JSON array of strings."""
+        schema = self._get_db_schema()
+        pid = self._get_current_patient_id()
+        pid_hint = f"Use patient_id = {pid} where relevant." if pid is not None else "Filter correctly by patient when needed."
+        prompt = f"""
+Given the following database schema:
+{schema}
+
+Produce up to {max_queries} small, distinct SQLite read-only SQL queries (strings) that together help answer:
+"{question}"
+
+Guidelines:
+- Output must be a single compact JSON array of strings, e.g., ["SELECT ...;", "SELECT ...;"]
+- Each string must be a single valid SELECT or WITH statement for SQLite.
+- No parameters (? or :name); inline literal values only. {pid_hint}
+- Prefer diversity across relevant tables (e.g., medications, immunizations, results, vitals, problems, procedures, notes).
+- Avoid duplicates and keep each query concise and focused.
+Retrieval-only rules (strict):
+- Retrieve existing fields only; do not generate or fabricate values.
+- Do NOT create synthetic columns from constant strings (e.g., 'Immunization' AS event_type).
+- Do NOT summarize or aggregate unless the question explicitly requests it (avoid GROUP BY/COUNT/AVG/etc.).
+- Prefer filtering with patient_id where applicable.
+- Use only column names present in the schema; do not rename columns unnecessarily.
+- Avoid UNIONs that add label columns; return raw rows from the relevant table(s).
+"""
+        if self.config["llm_provider"] == "ollama":
+            return self._query_ollama(prompt)
+        elif self.config["llm_provider"] == "gemini":
+            return self._query_gemini(prompt)
+        else:
+            raise ValueError("Unsupported LLM provider")
+
     # Public pipeline helpers for the UI
     def generate_sql(self, question: str) -> str:
         raw_sql = self._generate_sql(question)
         return self._sanitize_sql(raw_sql)
+
+    def generate_sql_batch(self, question: str, max_queries: int = 4) -> list[str]:
+        raw = self._generate_sql_batch(question, max_queries=max_queries)
+        items: list[str] = []
+        # First try JSON parsing
+        try:
+            arr = json.loads(raw)
+            if isinstance(arr, list):
+                items = [str(x) for x in arr]
+        except Exception:
+            # Fallback: split by newlines; filter non-empty
+            items = [line for line in raw.splitlines() if line.strip()]
+        cleaned: list[str] = []
+        seen = set()
+        for s in items:
+            q = self._sanitize_sql(s)
+            q = self._inline_patient_id(q)
+            if not q:
+                continue
+            if q in seen:
+                continue
+            seen.add(q)
+            cleaned.append(q)
+            if len(cleaned) >= max_queries:
+                break
+        return cleaned
 
     def execute_sql(self, sql_query: str):
         if not sql_query:
@@ -281,6 +353,7 @@ class LLMService:
         """
         raw_sql = self._generate_sql(question)
         sql_query = self._sanitize_sql(raw_sql)
+        sql_query = self._inline_patient_id(sql_query)
         if not sql_query:
             # attempt a second try asking for plain SELECT/WITH only
             retry_prompt = f"""
@@ -289,12 +362,15 @@ Question: {question}
 Schema:
 {self._get_db_schema()}
 
-Return a single valid SQLite SELECT or WITH query only. No markdown, no code fences.
+Return a single valid SQLite SELECT or WITH query only. No markdown, no code fences, no comments.
+Do NOT use parameters (? or :name); inline literal values only.
+{('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
             """
             raw_sql = (self._query_ollama(retry_prompt)
                        if self.config["llm_provider"] == "ollama"
                        else self._query_gemini(retry_prompt))
             sql_query = self._sanitize_sql(raw_sql)
+            sql_query = self._inline_patient_id(sql_query)
             if not sql_query:
                 raise ValueError("Failed to generate a valid read-only SQL query.")
         try:
@@ -313,17 +389,62 @@ Previous SQL:
 {sql_query}
 
 Using the schema below, produce a corrected single SELECT/WITH statement for SQLite.
-It must be valid SQL, no markdown, no comments, no code fences:
+It must be valid SQL, no markdown, no comments, no code fences. Do NOT use parameters (? or :name); inline literal values only.
+{('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
 {self._get_db_schema()}
             """
             raw_sql2 = (self._query_ollama(retry_prompt)
                         if self.config["llm_provider"] == "ollama"
                         else self._query_gemini(retry_prompt))
             sql2 = self._sanitize_sql(raw_sql2)
+            sql2 = self._inline_patient_id(sql2)
             if not sql2:
                 raise
             rows2 = self.execute_sql(sql2)
             return sql2, rows2
+
+    def retrieve_batch(self, question: str, max_queries: int = 4, max_retries: int = 1):
+        """Best-effort retrieval of multiple small queries.
+
+        Returns a list of dicts: [{"sql": str, "rows": list, "error": Optional[str]}]
+        """
+        queries = self.generate_sql_batch(question, max_queries=max_queries)
+        results = []
+        for q in queries:
+            try:
+                rows = self.execute_sql(q)
+                results.append({"sql": q, "rows": rows, "error": None})
+            except Exception as e:
+                if max_retries > 0:
+                    # try one correction for this query
+                    retry_prompt = f"""
+Your previous SQL had an error when executed on SQLite.
+Question: {question}
+Error: {str(e)}
+Previous SQL:
+{q}
+
+Using the schema below, produce a corrected single SELECT/WITH statement for SQLite.
+It must be valid SQL, no markdown, no comments, no code fences. Do NOT use parameters (? or :name); inline literal values only.
+{('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
+{self._get_db_schema()}
+                    """
+                    raw_sql2 = (self._query_ollama(retry_prompt)
+                                if self.config["llm_provider"] == "ollama"
+                                else self._query_gemini(retry_prompt))
+                    sql2 = self._sanitize_sql(raw_sql2)
+                    sql2 = self._inline_patient_id(sql2)
+                    if sql2:
+                        try:
+                            rows2 = self.execute_sql(sql2)
+                            results.append({"sql": sql2, "rows": rows2, "error": None})
+                            continue
+                        except Exception as e2:
+                            results.append({"sql": sql2, "rows": [], "error": str(e2)})
+                            continue
+                # if no retry or still failing
+                results.append({"sql": q, "rows": [], "error": str(e)})
+        return results
 
     def consult(self, question: str, rows) -> str:
         # Format retrieved rows
@@ -335,6 +456,33 @@ Patient context:
 {patient_context}
 
 Based on the following data from the user's medical records:
+{results_str}
+
+Answer the following question: "{question}"
+"""
+        if self.config["llm_provider"] == "ollama":
+            return self._query_ollama(final_prompt)
+        elif self.config["llm_provider"] == "gemini":
+            return self._query_gemini(final_prompt)
+        else:
+            raise ValueError("Unsupported LLM provider")
+
+    def consult_multi(self, question: str, rows_list: list[list]) -> str:
+        """Consult over multiple result sets by concatenating short previews."""
+        previews = []
+        for idx, rows in enumerate(rows_list, 1):
+            if not rows:
+                continue
+            # take up to 10 rows per set
+            subset = rows[:10]
+            previews.append(f"-- Result set {idx} --\n" + "\n".join(str(r) for r in subset))
+        results_str = "\n\n".join(previews) if previews else "(no rows)"
+        patient_context = self._get_patient_context_text()
+        final_prompt = f"""
+Patient context:
+{patient_context}
+
+Based on the following data from the user's medical records (multiple subsets):
 {results_str}
 
 Answer the following question: "{question}"
@@ -466,3 +614,66 @@ Answer the following question: "{question}"
             if d.get("deceased_date"):
                 parts.append(f"on {d['deceased_date']}")
         return ", ".join(parts) if parts else "(no demographics available)"
+
+    # ---------------- SQL parameter helpers -----------------
+    def _get_current_patient_id(self):
+        try:
+            with self.db_engine.connect() as conn:
+                r = conn.execute(text("SELECT id FROM patients LIMIT 1")).fetchone()
+                return int(r[0]) if r and r[0] is not None else None
+        except Exception:
+            return None
+
+    def _inline_patient_id(self, sql: str) -> str:
+        """Replace patient_id parameter placeholders with the current patient id literal.
+
+        - Only operates outside quotes
+        - Replaces patterns like: patient_id = ?  or patient_id = :patient_id
+        - Leaves SQL unchanged if no patient id available
+        - After replacement, if any remaining parameter markers (? or :name) exist, returns empty string to trigger retry
+        """
+        if not sql:
+            return sql
+        pid = self._get_current_patient_id()
+        if pid is None:
+            # If SQL contains parameter placeholders, reject to force retry without params
+            if "?" in sql or re.search(r":[A-Za-z_][A-Za-z0-9_]*", sql):
+                return ""
+            return sql
+
+        # Walk through and only modify outside of quotes
+        out = []
+        i = 0
+        n = len(sql)
+        in_squote = False
+        in_dquote = False
+        while i < n:
+            ch = sql[i]
+            if ch == "'" and not in_dquote:
+                in_squote = not in_squote
+                out.append(ch)
+                i += 1
+                continue
+            if ch == '"' and not in_squote:
+                in_dquote = not in_dquote
+                out.append(ch)
+                i += 1
+                continue
+            if not in_squote and not in_dquote:
+                # Try regex from this position for alias?.patient_id = ? or :name
+                m = re.match(r"((?:[A-Za-z_][A-Za-z0-9_]*\.)?)patient_id\s*=\s*(\?|:[A-Za-z_][A-Za-z0-9_]*)", sql[i:])
+                if m:
+                    # Preserve optional alias prefix
+                    prefix = m.group(1) or ""
+                    repl = f"{prefix}patient_id = {pid}"
+                    out.append(repl)
+                    i += m.end()
+                    continue
+            out.append(ch)
+            i += 1
+
+        s2 = "".join(out)
+        # If any other bind params remain, reject and force retry
+        if "?" in s2 or re.search(r":[A-Za-z_][A-Za-z0-9_]*", s2):
+            return ""
+        return s2
