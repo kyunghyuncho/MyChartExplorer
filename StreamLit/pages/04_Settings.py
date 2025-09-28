@@ -3,7 +3,8 @@
 
 # Import necessary libraries
 import streamlit as st
-from modules.config import load_configuration, save_configuration
+from modules.config import load_configuration, save_configuration, get_db_size_limit_mb, set_db_size_limit_mb
+from modules.admin import is_superuser
 from modules.ssh_tunnel import start_ssh_tunnel, stop_ssh_tunnel, get_tunnel_status
 from modules.auth import check_auth
 
@@ -24,7 +25,12 @@ with st.form("settings_form"):
 
     # Add fields for Ollama configuration
     st.subheader("Ollama Configuration")
-    ollama_url = st.text_input("Ollama URL", value=config["ollama_url"])
+    ollama_url = st.text_input(
+        "Ollama URL",
+        value=config["ollama_url"],
+        placeholder="http://localhost:11434",
+        help="If you run a local Ollama instance, it typically listens on http://localhost:11434. Leave blank to use that default.",
+    )
     ollama_model = st.text_input("Ollama Model", value=config.get("ollama_model", "gpt-oss:20b"))
 
     # Add fields for Gemini configuration
@@ -32,6 +38,21 @@ with st.form("settings_form"):
     gemini_api_key = st.text_input("Gemini API Key", type="password", value=config.get("gemini_api_key", ""))
     gemini_model = st.text_input("Gemini Model", value=config.get("gemini_model", "gemini-2.5-pro"))
     st.caption("Privacy reminder: consider using a paid Gemini API key for improved privacy controls. See the Gemini API Terms: https://ai.google.dev/gemini-api/terms")
+
+    # Database size limit (admin-controlled)
+    st.subheader("Storage Limits")
+    current_limit = get_db_size_limit_mb()
+    if is_superuser(st.session_state.get("username")):
+        db_size_limit_mb = st.number_input(
+            "Max per-user database size (MB)",
+            min_value=10,
+            max_value=2048,
+            value=int(current_limit),
+            help="Admin-only: when a user's database exceeds this size, importing will be blocked.",
+        )
+    else:
+        st.caption(f"Max per-user database size: {current_limit} MB (set by admin)")
+        db_size_limit_mb = current_limit
 
     # Add fields for SSH tunneling configuration
     st.subheader("SSH Tunnel for Remote Ollama")
@@ -66,11 +87,14 @@ with st.form("settings_form"):
         }
         # Save the new configuration to disk
         save_configuration(new_config)
+        # Persist admin-controlled limit globally when admin edits it
+        if is_superuser(st.session_state.get("username")):
+            set_db_size_limit_mb(int(db_size_limit_mb))
         # Also reflect saved values into session_state so other pages pick them up immediately
         for k, v in new_config.items():
             st.session_state[k] = v
-        # Show a success message
-        st.success("Settings saved successfully!")
+    # Show a success message
+    st.success("Settings saved successfully!")
 
 # Add buttons to start and stop the SSH tunnel
 st.subheader("SSH Tunnel Control")

@@ -7,7 +7,7 @@ import os
 import traceback
 from modules.database import get_db_engine, setup_database
 from modules.importer import DataImporter
-from modules.config import load_configuration
+from modules.config import load_configuration, get_db_size_limit_mb
 from modules.auth import check_auth
 
 # Check user authentication
@@ -28,6 +28,19 @@ st.session_state.setdefault('import_error_logs', [])
 # Determine fixed per-user database path (set at login)
 db_path = st.session_state.get('db_path', 'mychart.db')
 st.info(f"Import will write to your private database: `{db_path}`")
+
+# Storage threshold (MB) and helpers (admin-controlled)
+db_size_limit_mb = int(get_db_size_limit_mb())
+
+def _db_size_mb(path: str) -> float:
+    try:
+        return os.path.getsize(path) / (1024 * 1024)
+    except Exception:
+        return 0.0
+
+if os.path.exists(db_path):
+    _cur = _db_size_mb(db_path)
+    st.caption(f"Current DB size: {_cur:.1f} MB (limit {db_size_limit_mb} MB)")
 
 # Create a file uploader that accepts multiple files
 uploaded_files = st.file_uploader("Choose your MyChart XML files", type="xml", accept_multiple_files=True)
@@ -64,6 +77,13 @@ if uploaded_files:
                 db_key = st.session_state.get('db_encryption_key')
                 engine = get_db_engine(db_path, key=db_key)
                 setup_database(engine)
+                # Pre-check current DB size after ensuring file exists
+                cur_mb = _db_size_mb(db_path)
+                if cur_mb >= db_size_limit_mb:
+                    status_container.error(
+                        f"Database size {cur_mb:.1f} MB exceeds the limit ({db_size_limit_mb} MB). Import blocked."
+                    )
+                    st.stop()
                 # Create an DataImporter instance
                 parser = DataImporter(engine)
 
@@ -83,6 +103,15 @@ if uploaded_files:
                         # Parse and import the data from the current file
                         parser.process_xml_file(temp_file_path)
                         success_count += 1
+                        # Mid-import size check
+                        cur_mb = _db_size_mb(db_path)
+                        if cur_mb >= db_size_limit_mb:
+                            status_container.warning(
+                                f"Database reached {cur_mb:.1f} MB, exceeding the limit ({db_size_limit_mb} MB). Import has been stopped."
+                            )
+                            # Update progress to current point and stop processing more files
+                            progress.progress(int(((idx + 1) / total) * 100), text=f"Processed {idx + 1}/{total} file(s)")
+                            break
                     except Exception as fe:
                         tb = traceback.format_exc()
                         msg = f"[FILE: {fname}] {fe}\n{tb}"

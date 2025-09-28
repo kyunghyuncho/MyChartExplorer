@@ -33,11 +33,13 @@ def _get_active_config_path() -> str:
 
 def _default_config() -> dict:
     return {
-        "llm_provider": "ollama",
-        "ollama_url": "http://localhost:11434",
-        "ollama_model": "llama3",
+    "llm_provider": "gemini",
+    "ollama_url": "",
+        "ollama_model": "gpt-oss:20b",
         "gemini_api_key": "",
     "gemini_model": "gemini-2.5-pro",
+    # Max allowed size for the user's SQLite DB in megabytes
+    "db_size_limit_mb": 100,
         "ssh_host": "",
         "ssh_port": 22,
         "ssh_user": "",
@@ -117,3 +119,48 @@ def save_configuration(config: dict) -> None:
     filtered = {k: v for k, v in (config or {}).items() if k in allowed_keys}
     new_cfg = _merge(current, filtered)
     _write_file_config(new_cfg)
+
+
+# -------- Admin/global settings helpers --------
+def _read_json(path: str) -> dict:
+    p = Path(path)
+    if not p.exists():
+        return {}
+    try:
+        with p.open("r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def _write_json(path: str, data: dict) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with p.open("w", encoding="utf-8") as f:
+            json.dump(data or {}, f, indent=2)
+    except Exception:
+        pass
+
+
+def get_db_size_limit_mb() -> int:
+    """Return the global DB size limit (MB), defaulting to 100 if unset.
+
+    This reads from the global config.json path, ignoring per-user overrides.
+    """
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    try:
+        val = int((data or {}).get("db_size_limit_mb", 100))
+        return max(1, val)
+    except Exception:
+        return 100
+
+
+def set_db_size_limit_mb(mb: int) -> None:
+    """Persist the global DB size limit (MB) into the global config.json."""
+    mb = int(mb)
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    data["db_size_limit_mb"] = max(1, mb)
+    _write_json(global_path, data)

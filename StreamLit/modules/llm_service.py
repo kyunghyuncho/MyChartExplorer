@@ -31,7 +31,7 @@ class LLMService:
         """
         # Default configuration
         config = {
-            "llm_provider": "ollama",
+            "llm_provider": "gemini",
             "ollama_url": "http://localhost:11434",
             "ollama_model": "llama3",
             "gemini_api_key": None,
@@ -456,8 +456,34 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
         Returns a list of dicts: [{"sql": str, "rows": list, "error": Optional[str]}]
         """
         queries = self.generate_sql_batch(question, max_queries=max_queries)
+
+        # Hybrid boost: add deterministic queries for clinical notes to increase recall
+        extra_queries: list[str] = []
+        if self._has_table("notes"):
+            # Always include a recent-notes overview
+            extra_queries.append(
+                "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet FROM notes ORDER BY note_date DESC LIMIT 10;"
+            )
+            # If the question appears to target narrative content, add simple keyword searches
+            if self._is_notes_intent(question):
+                for kw in self._extract_keywords(question)[:4]:
+                    # Escape single quotes for SQL literal
+                    safe = kw.replace("'", "''")
+                    extra_queries.append(
+                        "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet "
+                        "FROM notes "
+                        f"WHERE lower(note_title) LIKE '%{safe.lower()}%' OR lower(note_content) LIKE '%{safe.lower()}%' "
+                        "ORDER BY note_date DESC LIMIT 20;"
+                    )
+
+        run_queries = extra_queries + queries
+        # Avoid producing too many tabs; cap execution to extras + max_queries
+        max_to_run = min(len(run_queries), len(extra_queries) + max_queries)
+
         results = []
-        for q in queries:
+        for idx, q in enumerate(run_queries):
+            if idx >= max_to_run:
+                break
             try:
                 rows = self.execute_sql(q)
                 results.append({"sql": q, "rows": rows, "error": None})
@@ -586,8 +612,10 @@ Answer the following question: "{question}"
             "prompt": prompt,
             "stream": False
         }
+        # Determine base URL: use configured value or fall back to local default
+        base_url = (cfg.get("ollama_url") or "http://localhost:11434").rstrip("/")
         # Make a POST request to the Ollama API
-        response = requests.post(f"{cfg['ollama_url']}/api/generate", json=payload)
+        response = requests.post(f"{base_url}/api/generate", json=payload)
         # Raise an exception if the request was unsuccessful
         response.raise_for_status()
         # Parse the JSON response and return the content
@@ -713,6 +741,46 @@ Answer the following question: "{question}"
             if d.get("deceased_date"):
                 parts.append(f"on {d['deceased_date']}")
         return ", ".join(parts) if parts else "(no demographics available)"
+
+    # ---------------- Intent and keyword helpers (notes-focused) -----------------
+    def _has_table(self, name: str) -> bool:
+        try:
+            insp = inspect(self.db_engine)
+            return name in (insp.get_table_names() or [])
+        except Exception:
+            return False
+
+    def _is_notes_intent(self, question: str) -> bool:
+        if not question:
+            return False
+        q = question.lower()
+        keywords = [
+            "note", "notes", "progress note", "clinic note", "office note", "visit note",
+            "encounter", "visit", "hpi", "assessment", "plan", "a/p", "impression",
+            "discharge", "admission", "consult", "operative", "op note", "summary",
+            "letter", "provider said", "doctor said", "nurse note",
+        ]
+        return any(k in q for k in keywords)
+
+    def _extract_keywords(self, question: str) -> list[str]:
+        if not question:
+            return []
+        # Simple heuristic: split on non-letters, drop stopwords/short tokens
+        import re as _re
+        tokens = [t for t in _re.split(r"[^a-zA-Z]+", question.lower()) if len(t) >= 4]
+        stop = {
+            "about","after","before","since","with","without","which","what","that","this","from","into","over","under","where","when","your","their","there","have","been","being","were","will","would","could","should","because","while","during","notes","note","visit","visits","encounter","encounters",
+        }
+        uniq = []
+        seen = set()
+        for t in tokens:
+            if t in stop:
+                continue
+            if t in seen:
+                continue
+            seen.add(t)
+            uniq.append(t)
+        return uniq[:8]
 
     # ---------------- SQL parameter helpers -----------------
     def _get_current_patient_id(self):

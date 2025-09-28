@@ -48,7 +48,7 @@ else:
 
         # Ensure llm_provider exists in session_state before rendering widget
         if "llm_provider" not in st.session_state:
-            st.session_state["llm_provider"] = "ollama"
+            st.session_state["llm_provider"] = "gemini"
 
         # Determine configuration status for each backend from current session config
         ollama_ok = bool(st.session_state.get("ollama_url")) and bool(st.session_state.get("ollama_model"))
