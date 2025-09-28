@@ -7,3 +7,5 @@ sshtunnel
 beautifulsoup4
 lxml
 requests
+streamlit-authenticator
+pyyaml
