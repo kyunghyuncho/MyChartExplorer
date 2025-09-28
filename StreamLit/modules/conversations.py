@@ -2,6 +2,8 @@ import json
 import os
 import time
 from typing import List, Dict, Any
+from cryptography.fernet import Fernet
+import base64
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "conversations")
 BASE_DIR = os.path.abspath(BASE_DIR)
@@ -14,55 +16,91 @@ def _slugify(name: str) -> str:
     safe = "-".join(safe.split())
     return safe[:100] or f"session-{int(time.time())}"
 
-def list_conversations() -> List[Dict[str, Any]]:
-    _ensure_dir()
+def list_conversations(username: str, key: str) -> List[Dict[str, Any]]:
+    conv_dir = get_user_conversations_dir(username)
     items = []
-    for fname in sorted(os.listdir(BASE_DIR)):
-        if fname.endswith(".json"):
-            path = os.path.join(BASE_DIR, fname)
+    for fname in sorted(os.listdir(conv_dir)):
+        if fname.endswith(".enc"):
+            path = os.path.join(conv_dir, fname)
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    meta = json.load(f)
-                items.append({
-                    "id": fname[:-5],
-                    "title": meta.get("title") or fname[:-5],
-                    "created_at": meta.get("created_at"),
-                    "updated_at": meta.get("updated_at"),
-                })
+                conv_id = fname[:-4]
+                conv = load_conversation(conv_id, username, key)
+                if conv:
+                    items.append({
+                        "id": conv_id,
+                        "title": conv.get("title") or conv_id,
+                        "created_at": conv.get("created_at"),
+                        "updated_at": conv.get("updated_at"),
+                    })
             except Exception:
                 continue
     # Newest first
     items.sort(key=lambda x: x.get("updated_at") or 0, reverse=True)
     return items
 
-def save_conversation(messages: List[Dict[str, str]], title: str | None = None, conv_id: str | None = None) -> str:
-    _ensure_dir()
+def save_conversation(messages: List[Dict[str, str]], username: str, key: str, title: str | None = None, conv_id: str | None = None) -> str:
+    conv_dir = get_user_conversations_dir(username)
+    fernet = _get_fernet(key)
     now = int(time.time())
+    
     if not conv_id:
         base = _slugify(title or (messages[0]["content"][:50] if messages else f"session-{now}"))
         conv_id = f"{base}-{now}"
-    path = os.path.join(BASE_DIR, f"{conv_id}.json")
+    
+    path = os.path.join(conv_dir, f"{conv_id}.enc")
+    
     data = {
         "id": conv_id,
-        "title": title or messages[0]["content"][:80] if messages else conv_id,
+        "title": title or (messages[0]["content"][:80] if messages else conv_id),
         "created_at": now,
         "updated_at": now,
         "messages": messages,
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    
+    encrypted_data = fernet.encrypt(json.dumps(data).encode('utf-8'))
+    
+    with open(path, "wb") as f:
+        f.write(encrypted_data)
+        
     return conv_id
 
-def load_conversation(conv_id: str) -> Dict[str, Any] | None:
-    _ensure_dir()
-    path = os.path.join(BASE_DIR, f"{conv_id}.json")
+def load_conversation(conv_id: str, username: str, key: str) -> Dict[str, Any] | None:
+    conv_dir = get_user_conversations_dir(username)
+    path = os.path.join(conv_dir, f"{conv_id}.enc")
+    
     if not os.path.exists(path):
         return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        
+    fernet = _get_fernet(key)
+    
+    with open(path, "rb") as f:
+        encrypted_data = f.read()
+        
+    try:
+        decrypted_data = fernet.decrypt(encrypted_data)
+        return json.loads(decrypted_data.decode('utf-8'))
+    except Exception:
+        return None
 
-def delete_conversation(conv_id: str) -> None:
-    _ensure_dir()
-    path = os.path.join(BASE_DIR, f"{conv_id}.json")
+def delete_conversation(conv_id: str, username: str) -> None:
+    conv_dir = get_user_conversations_dir(username)
+    path = os.path.join(conv_dir, f"{conv_id}.enc")
     if os.path.exists(path):
         os.remove(path)
+
+def _get_fernet(key: str) -> Fernet:
+    """Derive a valid Fernet key from the user's key."""
+    # Fernet keys must be 32 bytes and URL-safe base64 encoded.
+    # We'll use the first 32 bytes of the provided key and encode it.
+    if len(key) < 32:
+        # Pad the key if it's too short
+        key = key.ljust(32, '0')
+    key_bytes = key[:32].encode('utf-8')
+    safe_key = base64.urlsafe_b64encode(key_bytes)
+    return Fernet(safe_key)
+
+def get_user_conversations_dir(username: str) -> str:
+    """Get the path to the user's conversations directory."""
+    base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "user_data", username, "conversations"))
+    os.makedirs(base_path, exist_ok=True)
+    return base_path

@@ -29,18 +29,25 @@ if st.session_state.get("authentication_status"):
     st.page_link("Home.py", label="Go to Home", icon="🏠")
 else:
     try:
-        # The register_user method returns a tuple: (bool, str) on new versions
-        # It returns the username upon successful registration.
-        username_of_newly_registered_user = authenticator.register_user()
-        if username_of_newly_registered_user is not None:
-            st.success('User registered successfully. Please log in from Home.')
-            
-            # Generate a database encryption key for the new user
-            db_key = secrets.token_hex(32)
-            config['credentials']['usernames'][username_of_newly_registered_user[1]]['db_encryption_key'] = db_key
+        # register_user returns username on success.
+        result = authenticator.register_user()
+        # Handle both possible return types (string username or tuple)
+        username = None
+        if isinstance(result, str):
+            username = result
+        elif isinstance(result, (list, tuple)) and len(result) >= 2:
+            # Some versions returned (success_bool, username)
+            success, uname = result[0], result[1]
+            if success:
+                username = uname
 
+        if username:
+            # Generate and persist a per-user DB encryption key
+            db_key = secrets.token_hex(32)
+            config.setdefault('credentials', {}).setdefault('usernames', {}).setdefault(username, {})['db_encryption_key'] = db_key
             with open('config.yaml', 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
+            st.success('User registered successfully. Please log in from Home.')
     except Exception as e:
         st.error(e)
 

@@ -18,6 +18,18 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### macOS Prerequisites
+
+If you are on macOS, you may need to install `sqlcipher` for the database encryption features to work.
+
+```bash
+brew install sqlcipher
+export C_INCLUDE_PATH="/opt/homebrew/opt/sqlcipher/include"
+export LIBRARY_PATH="/opt/homebrew/opt/sqlcipher/lib"
+# Now, run the pip install command
+pip install -r requirements.txt
+```
+
 ## Running
 
 ```bash
@@ -27,12 +39,22 @@ streamlit run Home.py
 
 The app is a multipage app. Use the left sidebar to navigate pages.
 
+## User Registration and Security
+
+This application supports multi-user environments by providing a user registration and login system.
+
+- **User Accounts**: Each user can create their own account to keep their health data, configuration, and conversations private.
+- **Data Isolation**: Your data is stored in a user-specific directory and is only accessible after you log in.
+- **Getting Started**: New users should go to the "Register" page from the sidebar to create an account. Existing users can log in on the Home page.
+
 ## Pages Overview
 
-- Data Importer: import your MyChart XML into a local SQLite DB.
-- Database Explorer: browse tables and rows.
+- Register: Create a user account to save your data and conversations.
 - MyChart Explorer (Chat): ask questions; the app retrieves relevant data and consults on it.
+- Database Explorer: browse tables and rows.
+- Data Importer: import your MyChart XML into a local SQLite DB.
 - Settings: configure LLM backend, models, Gemini key, and SSH tunnel.
+- Instructions: How to use the app.
 
 ## Backends: Ollama and Gemini
 

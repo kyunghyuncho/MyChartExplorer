@@ -9,3 +9,8 @@ lxml
 requests
 streamlit-authenticator
 pyyaml
+pysqlcipher3
+cryptography
+cryptography
+cryptography
+cryptography

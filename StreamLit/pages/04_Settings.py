@@ -5,6 +5,10 @@
 import streamlit as st
 from modules.config import load_configuration, save_configuration
 from modules.ssh_tunnel import start_ssh_tunnel, stop_ssh_tunnel, get_tunnel_status
+from modules.auth import check_auth
+
+# Check user authentication
+check_auth()
 
 # Set the title of the page
 st.title("Settings")

@@ -5,6 +5,10 @@ import pandas as pd
 from modules.database import get_db_engine
 from sqlalchemy import inspect
 from modules.config import load_configuration
+from modules.auth import check_auth
+
+# Check user authentication
+check_auth()
 
 st.set_page_config(
     page_title="Database Explorer",

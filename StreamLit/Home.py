@@ -1,10 +1,9 @@
 # Import necessary libraries
 import streamlit as st
 import os
-import yaml
-from yaml.loader import SafeLoader
-import streamlit_authenticator as stauth
 from modules.config import load_configuration
+from modules.auth import get_authenticator
+from streamlit_authenticator.utilities.exceptions import LoginError
 
 # Set the title of the app
 st.set_page_config(
@@ -15,15 +14,7 @@ st.set_page_config(
 st.title("MyChart Explorer")
 
 # --- Authentication ---
-with open('config.yaml') as file:
-    config = yaml.load(file, Loader=SafeLoader)
-
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
+authenticator = get_authenticator()
 
 # Initialize state
 if "show_registration" not in st.session_state:
@@ -42,10 +33,20 @@ if st.session_state.get("authentication_status"):
 
     # Retrieve and store the encryption key in the session
     username = st.session_state["username"]
-    user_creds = config['credentials']['usernames'].get(username, {})
-    db_key = user_creds.get('db_encryption_key')
-    if db_key:
-        st.session_state['db_encryption_key'] = db_key
+
+    # Read from config.yaml to get per-user db_encryption_key (avoid accessing authenticator internals)
+    try:
+        import yaml
+        from yaml.loader import SafeLoader
+        with open('config.yaml') as f:
+            cfg = yaml.load(f, Loader=SafeLoader) or {}
+        user_creds = ((cfg.get('credentials') or {}).get('usernames') or {}).get(username, {})
+        db_key = user_creds.get('db_encryption_key')
+        if db_key:
+            st.session_state['db_encryption_key'] = db_key
+    except Exception:
+        # Don't block the UI if config can't be read; encryption is optional
+        pass
     
     authenticator.logout()
     st.sidebar.title(f"Welcome {st.session_state['name']}")
@@ -72,10 +73,16 @@ if st.session_state.get("authentication_status"):
 
 # User is not logged in
 else:
-    # Only show Login on Home, push registration to a dedicated page
-    authenticator.login(location='main')
+    try:
+        authenticator.login(location='main')
+    except LoginError as e:
+        st.error(f"Login failed: {e}")
+        st.switch_page("pages/05_Register.py")
+
+
     if st.session_state.get("authentication_status") is False:
-        st.error('Username/password is incorrect')
+        st.error('Username/password is incorrect. Please try again or register a new account.')
+        st.page_link("pages/05_Register.py", label="Register a new user", icon="✍️")
     elif st.session_state.get("authentication_status") is None:
         st.warning('Please enter your username and password.')
-    st.page_link("pages/05_Register.py", label="Register a new user", icon="✍️")
+        st.page_link("pages/05_Register.py", label="Register a new user", icon="✍️")

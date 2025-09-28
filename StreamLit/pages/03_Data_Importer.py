@@ -7,6 +7,10 @@ import os
 from modules.database import get_db_engine, setup_database
 from modules.importer import DataImporter
 from modules.config import load_configuration
+from modules.auth import check_auth
+
+# Check user authentication
+check_auth()
 
 # Set the title of the page
 st.title("Data Importer")
