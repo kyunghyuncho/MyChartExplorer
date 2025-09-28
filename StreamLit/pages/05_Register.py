@@ -59,7 +59,12 @@ else:
         if username:
             # Generate and persist a per-user DB encryption key
             db_key = secrets.token_hex(32)
-            config.setdefault('credentials', {}).setdefault('usernames', {}).setdefault(username, {})['db_encryption_key'] = db_key
+            users = config.setdefault('credentials', {}).setdefault('usernames', {})
+            user_entry = users.setdefault(username, {})
+            user_entry['db_encryption_key'] = db_key
+            # If this is the first user, make them superuser
+            if len(users) == 1:
+                user_entry['superuser'] = True
             with open(get_config_yaml_path(), 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
             st.success('User registered successfully. Please log in from Home.')
