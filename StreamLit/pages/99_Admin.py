@@ -57,6 +57,8 @@ else:
                     key=f"mode-{uname}"
                 )
                 include_key = st.checkbox("Include key.txt (encrypted mode)", key=f"key-{uname}")
+                if include_key:
+                    st.warning("This includes the user's DB/conversation key inside the ZIP. Share only with the verified account owner.")
                 if st.button("Export Data (ZIP)", key=f"export-{uname}"):
                     try:
                         data_bytes = export_user_zip(uname, mode=mode, include_key=include_key)

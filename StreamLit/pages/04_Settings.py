@@ -3,10 +3,12 @@
 
 # Import necessary libraries
 import streamlit as st
+import os
 from modules.config import load_configuration, save_configuration, get_db_size_limit_mb, set_db_size_limit_mb
-from modules.admin import is_superuser
+from modules.admin import is_superuser, export_user_zip
 from modules.ssh_tunnel import start_ssh_tunnel, stop_ssh_tunnel, get_tunnel_status
 from modules.auth import check_auth
+from modules.paths import get_conversations_dir
 
 # Check user authentication
 check_auth()
@@ -136,3 +138,61 @@ with col3:
     if st.button("Show Tunnel Status"):
         status = get_tunnel_status()
         st.json(status)
+
+# --- Export My Data (decrypted-only) ---
+st.markdown("---")
+st.subheader("Export My Data")
+st.caption("Download a decrypted ZIP of your database tables (as JSON) and conversations. Keep it private.")
+
+username = st.session_state.get("username")
+if username:
+    # Show a quick estimate of data size and contents
+    def _fmt_bytes(n: int) -> str:
+        units = ["B", "KB", "MB", "GB", "TB"]
+        s = float(n)
+        i = 0
+        while s >= 1024 and i < len(units) - 1:
+            s /= 1024.0
+            i += 1
+        return f"{s:.1f} {units[i]}"
+
+    db_path = st.session_state.get("db_path")
+    db_size = os.path.getsize(db_path) if db_path and os.path.exists(db_path) else 0
+    conv_dir = get_conversations_dir(username)
+    conv_size = 0
+    conv_count = 0
+    try:
+        if os.path.isdir(conv_dir):
+            for root, _, files in os.walk(conv_dir):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    try:
+                        conv_size += os.path.getsize(fp)
+                        conv_count += 1
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Database size", _fmt_bytes(db_size))
+    col_b.metric("Conversations size", _fmt_bytes(conv_size))
+    col_c.metric("Conversations files", conv_count)
+    st.caption("Export includes: JSON files per DB table (export/db/) and decrypted conversations (export/conversations/). No keys are included.")
+
+    if st.button("Create Export (ZIP)"):
+        with st.spinner("Preparing your export…"):
+            try:
+                data_bytes = export_user_zip(username, mode="decrypted", include_key=False)
+                st.download_button(
+                    label="Download My Data",
+                    data=data_bytes,
+                    file_name=f"{username}_mychart_decrypted.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                )
+                st.success("Your export is ready.")
+            except Exception as e:
+                st.error(f"Failed to create export: {e}")
+else:
+    st.info("Log in to export your data.")

@@ -62,6 +62,11 @@ if st.session_state.get("authentication_status"):
             }
             with p.open('w', encoding='utf-8') as f:
                 yaml.dump(default_cfg, f, default_flow_style=False)
+            try:
+                import os as _os
+                _os.chmod(p, 0o600)
+            except Exception:
+                pass
         with p.open() as f:
             cfg = yaml.load(f, Loader=SafeLoader) or {}
         user_creds = ((cfg.get('credentials') or {}).get('usernames') or {}).get(username, {})

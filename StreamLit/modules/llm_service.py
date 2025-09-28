@@ -194,7 +194,15 @@ class LLMService:
             if not t:
                 return ""
             lowered = t.lower()
+            # Must start with SELECT or WITH
             if not (lowered.startswith("select") or lowered.startswith("with")):
+                return ""
+            # Disallow dangerous keywords anywhere using word boundaries to avoid false positives
+            import re as _re
+            if _re.search(r"\b(insert|update|delete|create|alter|drop|attach|detach|vacuum|pragma)\b", lowered):
+                return ""
+            # If starts with WITH, ensure it eventually leads to a SELECT and not DML
+            if lowered.startswith("with") and "select" not in lowered:
                 return ""
             # balance check
             in_squote = False
@@ -613,7 +621,21 @@ Answer the following question: "{question}"
             "stream": False
         }
         # Determine base URL: use configured value or fall back to local default
-        base_url = (cfg.get("ollama_url") or "http://localhost:11434").rstrip("/")
+        raw_url = (cfg.get("ollama_url") or "http://localhost:11434").strip()
+        # Allow only http/https schemes and strip trailing slash
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(raw_url)
+            host = (parsed.hostname or "").lower()
+            if parsed.scheme not in ("http", "https"):
+                base_url = "http://localhost:11434"
+            elif host not in ("localhost", "127.0.0.1"):
+                # Restrict to loopback to avoid SSRF; remote access should use SSH tunnel which also binds localhost
+                base_url = "http://localhost:11434"
+            else:
+                base_url = raw_url.rstrip("/")
+        except Exception:
+            base_url = "http://localhost:11434"
         # Make a POST request to the Ollama API
         response = requests.post(f"{base_url}/api/generate", json=payload)
         # Raise an exception if the request was unsuccessful

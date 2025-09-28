@@ -91,14 +91,16 @@ if uploaded_files:
                 file_errors = []
 
                 # Loop through each uploaded file
+                import tempfile
                 for idx, uploaded_file in enumerate(uploaded_files):
                     fname = uploaded_file.name
-                    # Create a temporary path to save the uploaded file
-                    temp_file_path = f"temp_{fname}"
+                    # Create a secure temporary file to save the uploaded content
+                    tmp = tempfile.NamedTemporaryFile(prefix="mychart_", suffix=".xml", delete=False)
+                    temp_file_path = tmp.name
                     try:
                         # Write the uploaded file to the temporary path
-                        with open(temp_file_path, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
+                        with tmp:
+                            tmp.write(uploaded_file.getbuffer())
 
                         # Parse and import the data from the current file
                         parser.process_xml_file(temp_file_path)

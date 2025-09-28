@@ -31,6 +31,12 @@ def get_data_root() -> Path:
 
 def _ensure_dir(p: Path) -> Path:
     p.mkdir(parents=True, exist_ok=True)
+    # Best-effort: restrict to user-only access
+    try:
+        import os as _os
+        _os.chmod(p, 0o700)
+    except Exception:
+        pass
     return p
 
 

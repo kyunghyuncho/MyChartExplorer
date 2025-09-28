@@ -70,6 +70,12 @@ def _write_file_config(cfg: dict) -> None:
     try:
         with path.open("w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
+        # Restrict permissions to user read/write only
+        try:
+            import os as _os
+            _os.chmod(path, 0o600)
+        except Exception:
+            pass
     except Exception:
         # If writing fails, still keep session_state updated
         pass

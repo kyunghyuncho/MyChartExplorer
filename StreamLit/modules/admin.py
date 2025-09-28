@@ -33,6 +33,10 @@ def _save_config(cfg: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         yaml.dump(cfg, f, default_flow_style=False)
+    try:
+        os.chmod(path, 0o600)
+    except Exception:
+        pass
 
 
 def list_users() -> List[Tuple[str, Dict[str, Any]]]:

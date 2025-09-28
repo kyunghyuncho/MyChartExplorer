@@ -56,6 +56,11 @@ def save_conversation(messages: List[Dict[str, str]], username: str, key: str, t
     
     with open(path, "wb") as f:
         f.write(encrypted_data)
+    try:
+        import os as _os
+        _os.chmod(path, 0o600)
+    except Exception:
+        pass
         
     return conv_id
 

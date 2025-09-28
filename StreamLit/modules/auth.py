@@ -30,6 +30,11 @@ def _ensure_config_yaml(path: str) -> None:
     try:
         with p.open('w', encoding='utf-8') as f:
             yaml.dump(default, f, default_flow_style=False)
+        try:
+            import os as _os
+            _os.chmod(p, 0o600)
+        except Exception:
+            pass
     except Exception:
         # Best effort; if this fails, subsequent open will raise and surface to UI
         pass

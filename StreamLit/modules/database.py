@@ -153,7 +153,9 @@ def get_db_engine(db_path: str, key: str | None = None) -> Engine:
         def set_sqlcipher(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
             try:
-                cursor.execute(f"PRAGMA key='{key}';")
+                # Escape single quotes in key to avoid breaking the PRAGMA literal
+                safe_key = str(key).replace("'", "''")
+                cursor.execute(f"PRAGMA key='{safe_key}';")
             except Exception:
                 pass
             finally:

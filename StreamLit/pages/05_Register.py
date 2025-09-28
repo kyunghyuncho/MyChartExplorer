@@ -26,6 +26,11 @@ if not cfg_file.exists():
     }
     with cfg_file.open('w', encoding='utf-8') as f:
         yaml.dump(default_cfg, f, default_flow_style=False)
+    try:
+        import os as _os
+        _os.chmod(cfg_file, 0o600)
+    except Exception:
+        pass
 
 with cfg_file.open() as file:
     config = yaml.load(file, Loader=SafeLoader)
@@ -67,6 +72,11 @@ else:
                 user_entry['superuser'] = True
             with open(get_config_yaml_path(), 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
+            try:
+                import os as _os
+                _os.chmod(get_config_yaml_path(), 0o600)
+            except Exception:
+                pass
             st.success('User registered successfully. Please log in from Home.')
     except Exception as e:
         st.error(e)
