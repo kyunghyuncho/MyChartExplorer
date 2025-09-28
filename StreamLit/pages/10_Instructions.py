@@ -136,3 +136,7 @@ with tab3:
 
     > **Note for Power Users:** The free API key has usage limits. If you require more extensive use, you can enable billing on your Google Cloud project to access higher limits and paid tiers of the Gemini API.
     """)
+    st.info(
+        "Privacy reminder: consider using a paid Gemini API key for improved privacy controls. See the Gemini API Terms (Unpaid Services may be used to improve Google's services): https://ai.google.dev/gemini-api/terms",
+        icon="🔒",
+    )

@@ -31,6 +31,7 @@ with st.form("settings_form"):
     st.subheader("Gemini Configuration")
     gemini_api_key = st.text_input("Gemini API Key", type="password", value=config.get("gemini_api_key", ""))
     gemini_model = st.text_input("Gemini Model", value=config.get("gemini_model", "gemini-2.5-pro"))
+    st.caption("Privacy reminder: consider using a paid Gemini API key for improved privacy controls. See the Gemini API Terms: https://ai.google.dev/gemini-api/terms")
 
     # Add fields for SSH tunneling configuration
     st.subheader("SSH Tunnel for Remote Ollama")
