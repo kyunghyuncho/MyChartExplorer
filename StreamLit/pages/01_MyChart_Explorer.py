@@ -50,20 +50,60 @@ else:
         if "llm_provider" not in st.session_state:
             st.session_state["llm_provider"] = "ollama"
 
+        # Determine configuration status for each backend from current session config
+        ollama_ok = bool(st.session_state.get("ollama_url")) and bool(st.session_state.get("ollama_model"))
+        gemini_ok = bool(st.session_state.get("gemini_api_key")) and bool(st.session_state.get("gemini_model"))
+
+        # If current selection isn't configured, fall back to the first configured option
+        if st.session_state["llm_provider"] == "ollama" and not ollama_ok:
+            st.session_state["llm_provider"] = "gemini" if gemini_ok else "ollama"
+        if st.session_state["llm_provider"] == "gemini" and not gemini_ok:
+            st.session_state["llm_provider"] = "ollama" if ollama_ok else "gemini"
+
+        # Remember previous (valid) selection to restore if user clicks an unavailable option
+        st.session_state["_prev_llm_provider"] = st.session_state.get("llm_provider", "ollama")
+
         # Callback to persist selection without touching widget keys
         def _persist_backend_choice():
-            # Persist only the provider; avoid mutating unrelated widget state
+            sel = st.session_state.get("llm_provider")
+            # If user selected an unconfigured backend, revert and notify
+            if sel == "ollama" and not ollama_ok:
+                st.session_state["llm_provider"] = st.session_state.get("_prev_llm_provider", "gemini" if gemini_ok else "ollama")
+                st.warning("Ollama isn't configured yet. Set it up in Settings.")
+                return
+            if sel == "gemini" and not gemini_ok:
+                st.session_state["llm_provider"] = st.session_state.get("_prev_llm_provider", "ollama" if ollama_ok else "gemini")
+                st.warning("Gemini isn't configured yet. Add your API key in Settings.")
+                return
+            # Persist only the valid provider; avoid mutating unrelated widget state
             save_configuration({"llm_provider": st.session_state["llm_provider"]})
+            st.session_state["_prev_llm_provider"] = st.session_state["llm_provider"]
             # A toast is fine; Streamlit reruns after callbacks automatically
             st.toast(f"Backend: {st.session_state['llm_provider'].capitalize()}")
 
         # Bind widget directly to session_state key to avoid index/default clashes
+        disabled_all = not (ollama_ok or gemini_ok)
         st.radio(
             "Choose a backend:",
             ("ollama", "gemini"),
             key="llm_provider",
+            format_func=lambda x: (
+                "Ollama (configured)" if x == "ollama" and ollama_ok else
+                "Ollama (needs setup)" if x == "ollama" else
+                "Gemini (configured)" if x == "gemini" and gemini_ok else
+                "Gemini (needs setup)"
+            ),
             on_change=_persist_backend_choice,
+            disabled=disabled_all,
+            help=(
+                "Configure backends on the Settings page. "
+                "Options marked 'needs setup' can't be selected until configured."
+            ),
         )
+
+        if disabled_all:
+            st.info("No LLM backends are configured yet. Please configure one in Settings.")
+            st.page_link("pages/04_Settings.py", label="Open Settings")
 
         st.markdown("---")
 

@@ -19,6 +19,7 @@ st.set_page_config(
 )
 
 st.title("MyChart Explorer")
+st.caption("Explore and consult on your own MyChart-exported health records.")
 
 # --- Authentication ---
 authenticator = get_authenticator()
@@ -73,9 +74,9 @@ if st.session_state.get("authentication_status"):
     
     authenticator.logout()
     st.sidebar.title(f"Welcome {st.session_state['name']}")
-    
+
     load_configuration()
-    
+
     db_path = st.session_state.get('db_path')
     if 'data_imported' not in st.session_state:
         if db_path and os.path.exists(db_path):
@@ -85,14 +86,27 @@ if st.session_state.get("authentication_status"):
             st.session_state['data_imported'] = False
     
     if st.session_state.get('data_imported', False):
-        st.write("Your data is loaded and ready.")
-        st.page_link("pages/01_MyChart_Explorer.py", label="Go to MyChart Explorer", icon="➡️")
+        st.success("Your data is loaded and ready.")
     else:
-        st.write("Welcome to MyChart Explorer! This app helps you explore your MyChart data and get health advice.")
-        st.page_link("pages/03_Data_Importer.py", label="Get Started by Importing Your Data", icon="📥")
+        st.info("Start by importing your MyChart XML to build your local database.")
+
+    col_a, col_b, col_c, col_d = st.columns(4)
+    with col_a:
+        st.page_link("pages/03_Data_Importer.py", label="Data Importer", icon="📥")
+    with col_b:
+        st.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
+    with col_c:
+        st.page_link("pages/02_Database_Explorer.py", label="Database Explorer", icon="🗂️")
+    with col_d:
+        st.page_link("pages/10_Instructions.py", label="Instructions", icon="📖")
+
+    st.divider()
+    st.page_link("pages/00_About.py", label="About", icon="ℹ️")
     
-    st.sidebar.title("Navigation")
-    st.sidebar.info("Use the pages to navigate the app. If you are starting for the first time, go to the Data Importer.")
+    # Sidebar quick links (kept minimal)
+    st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
+    st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
+    st.sidebar.markdown("[License (MIT)](../LICENSE)")
 
 # User is not logged in
 else:
@@ -109,3 +123,11 @@ else:
     elif st.session_state.get("authentication_status") is None:
         st.warning('Please enter your username and password.')
         st.page_link("pages/05_Register.py", label="Register a new user", icon="✍️")
+
+    # Sidebar quick links (kept minimal)
+    st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
+    st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
+    st.sidebar.markdown("[License (MIT)](../LICENSE)")
+
+    st.divider()
+    st.caption("© 2025 Kyunghyun Cho — MIT License. See the LICENSE file in the repository.")
