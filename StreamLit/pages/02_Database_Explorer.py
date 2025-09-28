@@ -21,12 +21,13 @@ if not st.session_state.get('data_imported', False):
     st.warning("No data imported yet. Please import your MyChart data first.")
     st.page_link("pages/03_Data_Importer.py", label="Go to Data Importer")
 else:
+    # Prefer user-specific db path set at login
     db_path = st.session_state.get('db_path', 'mychart.db')
     st.info(f"Exploring database: `{db_path}`")
 
     try:
         # Create the database engine
-        engine = get_db_engine(db_path)
+        engine = get_db_engine(db_path, key=st.session_state.get('db_encryption_key'))
         
         # Use SQLAlchemy's inspector to get table names
         inspector = inspect(engine)

@@ -3,6 +3,7 @@ from sqlalchemy import (create_engine, Column, Integer, String, Boolean, Text,
                         ForeignKey, UniqueConstraint)
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.engine import Engine
+from sqlalchemy import event
 
 # Define the base class for declarative models
 Base = declarative_base()
@@ -137,7 +138,7 @@ class Note(Base):
     patient = relationship("Patient", back_populates="notes")
 
 
-def get_db_engine(db_path: str) -> Engine:
+def get_db_engine(db_path: str, key: str | None = None) -> Engine:
     """
     Creates a SQLAlchemy engine for the given database path.
     If the directory for the db_path doesn't exist, it will be created.
@@ -145,7 +146,19 @@ def get_db_engine(db_path: str) -> Engine:
     db_dir = os.path.dirname(db_path)
     if db_dir and not os.path.exists(db_dir):
         os.makedirs(db_dir)
-    return create_engine(f'sqlite:///{db_path}')
+    engine = create_engine(f'sqlite:///{db_path}')
+    if key:
+        # Attempt to enable SQLCipher; requires sqlite built with SQLCipher
+        @event.listens_for(engine, "connect")
+        def set_sqlcipher(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute(f"PRAGMA key='{key}';")
+            except Exception:
+                pass
+            finally:
+                cursor.close()
+    return engine
 
 def setup_database(engine: Engine):
     """

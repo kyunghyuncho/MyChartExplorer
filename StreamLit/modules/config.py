@@ -11,8 +11,23 @@ from pathlib import Path
 import streamlit as st
 
 
-# Where to store settings on disk (project-local)
-CONFIG_PATH = (Path(__file__).resolve().parent.parent / "config.json").as_posix()
+# Default config path (project-local); can be overridden per-user via session_state['config_path']
+DEFAULT_CONFIG_PATH = (Path(__file__).resolve().parent.parent / "config.json").as_posix()
+
+
+def _get_active_config_path() -> str:
+    """Return the config.json path to use.
+
+    If st.session_state['config_path'] is set (by authenticated Home page), use that
+    so each user gets an isolated config. Otherwise fall back to the default path.
+    """
+    try:
+        path = st.session_state.get("config_path")
+        if isinstance(path, str) and path.strip():
+            return path
+    except Exception:
+        pass
+    return DEFAULT_CONFIG_PATH
 
 
 def _default_config() -> dict:
@@ -34,7 +49,7 @@ def _default_config() -> dict:
 
 
 def _read_file_config() -> dict:
-    path = Path(CONFIG_PATH)
+    path = Path(_get_active_config_path())
     if not path.exists():
         return {}
     try:
@@ -46,7 +61,9 @@ def _read_file_config() -> dict:
 
 
 def _write_file_config(cfg: dict) -> None:
-    path = Path(CONFIG_PATH)
+    path = Path(_get_active_config_path())
+    # Ensure parent directory exists (for per-user paths)
+    path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with path.open("w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)

@@ -21,12 +21,12 @@ with st.form("settings_form"):
     # Add fields for Ollama configuration
     st.subheader("Ollama Configuration")
     ollama_url = st.text_input("Ollama URL", value=config["ollama_url"])
-    ollama_model = st.text_input("Ollama Model", value=config["ollama_model"])
+    ollama_model = st.text_input("Ollama Model", value=config.get("ollama_model", "gpt-oss:20b"))
 
     # Add fields for Gemini configuration
     st.subheader("Gemini Configuration")
-    gemini_api_key = st.text_input("Gemini API Key", type="password", value=config["gemini_api_key"])
-    gemini_model = st.text_input("Gemini Model", value=config["gemini_model"])
+    gemini_api_key = st.text_input("Gemini API Key", type="password", value=config.get("gemini_api_key", ""))
+    gemini_model = st.text_input("Gemini Model", value=config.get("gemini_model", "gemini-2.5-pro"))
 
     # Add fields for SSH tunneling configuration
     st.subheader("SSH Tunnel for Remote Ollama")

@@ -1,47 +1,111 @@
 import streamlit as st
 
-st.set_page_config(
-    page_title="Instructions: Get Your MyChart Data",
-    page_icon="📥",
-    layout="wide",
-)
+st.set_page_config(page_title="Instructions", layout="wide")
 
-st.title("📥 Instructions: How to Get Your MyChart Data")
+st.title("Instructions & Setup")
 
-st.markdown(
-    """
-This page provides instructions on how to download your health records from an Epic MyChart portal. We use NYU Langone Health's MyChart as a specific example.
-"""
-)
+st.markdown("""
+This page provides instructions on how to use the MyChart Explorer application, from getting your data to setting up the AI models.
+""")
 
-st.info(
-    "**Disclaimer:** The following steps are for the NYU Langone MyChart portal. The user interface and navigation on your provider's MyChart portal may be different. If you cannot find these options, please contact your healthcare provider for assistance.",
-    icon="⚠️",
-)
+tab1, tab2, tab3 = st.tabs(["Data Ingestion", "Ollama Setup (Local AI)", "Gemini API Setup (Cloud AI)"])
 
-st.header("Example: NYU Langone MyChart")
-st.markdown(
-    """
-1.  **Log In:** Navigate to the NYU Langone MyChart portal and log in:
-    [https://mychart.nyulmc.org/mychart](https://mychart.nyulmc.org/mychart)
+with tab1:
+    st.header("Step 1: Download Your MyChart Data")
+    st.markdown("""
+    To get started, you need to download your health records from your MyChart patient portal. The file you need is an XML file containing your health data.
 
-2.  **Navigate to "Share My Record":** Once logged in, click on the **"Menu"** button, and find the **"Share My Record"** option under the "Sharing" section.
+    **Example: Downloading from NYU Langone Health**
 
-3.  **Choose "Yourself":** On the "Share My Record" page, you will see options for who to share with. Click on the **"Yourself"** option.
+    1.  Log in to your **NYU Langone Health MyChart** account.
+    2.  Navigate to the **"Menu"**.
+    3.  Under the "My Record" section, find and click on **"Download My Record"**.
+    4.  You will be taken to a page to download your health summary. Select the following options:
+        *   **Which records?** Choose **"All available"** to get a complete picture of your health history.
+        *   **What format?** Select **"XML format"**. This is crucial for the application to be able to read your data.
+    5.  Click **"Download"**. A file named `MyChart_All.xml` (or similar) will be saved to your computer.
 
-4.  **Download a Snapshot:** Select the option to **"Download or send a snapshot of your health record."**
+    > **Disclaimer:** Your health data is sensitive and private. This application is designed to run locally on your machine. Your data is not uploaded to any external servers when you use this tool. You are responsible for securely storing your downloaded data file.
+    """)
 
-5.  **Select Records:** Choose **"All Visits"** to get a complete record. Then press **"Continue"**.
+    st.header("Step 2: Import Your Data")
+    st.markdown("""
+    Once you have the XML file:
+    1.  Navigate to the **"Data Importer"** page from the sidebar.
+    2.  Click the **"Browse files"** button and select the `.xml` file you downloaded.
+    3.  The application will process and import your data into a local, private database.
+    4.  You will see a confirmation message once the import is complete. You can then proceed to the **"MyChart Explorer"** to start asking questions.
+    """)
 
-6.  **Wait for Notification:** The system will prepare your files. This may take some time. You should receive an email from MyChart when your download is ready.
+with tab2:
+    st.header("How to Install Ollama for Local Inference")
+    st.markdown("""
+    Ollama allows you to run powerful open-source language models directly on your own computer. This is a great option for privacy and offline use.
 
-7.  **Download and Unzip:** Follow the link in the email to download a `.zip` file. Unzip this file on your computer.
+    Follow the instructions for your operating system.
+    """)
 
-8.  **Locate XML Files:** Inside the unzipped folder, you should find a directory structure similar to `IHE_XDM/`. Your XML health records will be inside a sub-folder, for instance `IHE_XDM/[your first name]1/`. These are the files you will use with the **Data Importer** page in this app.
-"""
-)
+    st.subheader("macOS")
+    st.markdown("""
+    1.  **Download:** Go to the [Ollama website](https://ollama.com) and download the macOS application.
+    2.  **Install:** Open the downloaded `.zip` file and drag the `Ollama.app` to your `Applications` folder.
+    3.  **Run:** Launch the Ollama application from your Applications folder. You will see an icon in the menu bar indicating that Ollama is running.
+    4.  **Pull a Model:** Open your terminal and run the following command to download a model. `gpt-oss:20b` is a great starting point.
+        ```bash
+        ollama pull gpt-oss:20b
+        ```
+    5.  **Verify:** Once the download is complete, the model is ready to be used by the MyChart Explorer. You can select it from the model list on the MyChart Explorer page.
+    """)
 
-st.warning(
-    "If these steps do not work for your provider, look for terms like 'Download', 'Export', 'Share Record', or 'Health Summary' in your MyChart portal. When in doubt, contact your provider's patient support.",
-    icon="💡",
-)
+    st.subheader("Windows")
+    st.markdown("""
+    1.  **Download:** Go to the [Ollama website](https://ollama.com) and download the Windows installer.
+    2.  **Install:** Run the downloaded installer and follow the on-screen prompts. Ollama will be set up to run as a background service.
+    3.  **Pull a Model:** Open PowerShell or Command Prompt and run the following command to download a model. `gpt-oss:20b` is a good choice.
+        ```bash
+        ollama pull gpt-oss:20b
+        ```
+    4.  **Verify:** After the download, the model is available for use in the application.
+    """)
+
+    st.subheader("Linux")
+    st.markdown("""
+    1.  **Install:** The recommended way to install Ollama on Linux is with a single command. Open your terminal and run:
+        ```bash
+        curl -fsSL https://ollama.com/install.sh | sh
+        ```
+    2.  **Pull a Model:** After the installation script completes, pull a model:
+        ```bash
+        ollama pull gpt-oss:20b
+        ```
+    3.  **Service:** The Ollama service will be automatically started and will run on system startup.
+    """)
+
+    st.info("""
+    **Optional: SSH Tunneling**
+    If you are running Ollama on a different machine (e.g., a home server), you can connect to it using an SSH tunnel. Instructions for setting this up can be found on the **"Settings"** page.
+    """, icon="🔌")
+
+
+with tab3:
+    st.header("How to Get and Set a Gemini API Key")
+    st.markdown("""
+    Google's Gemini models are powerful and can be accessed via an API key. You can get a free key to start.
+
+    1.  **Go to Google AI Studio:** Open your web browser and navigate to [aistudio.google.com](https://aistudio.google.com).
+    2.  **Sign In:** Sign in with your Google account.
+    3.  **Get API Key:**
+        *   Once you are in the AI Studio, look for a button or link that says **"Get API key"**. This is typically found in the top-left or top-right corner of the page.
+        *   Click on it, and you will be prompted to create an API key in a new project.
+    4.  **Create and Copy Key:**
+        *   Follow the on-screen instructions to create your new API key.
+        *   Once generated, a long string of characters will be displayed. This is your API key. **Copy this key immediately and save it somewhere safe.** You will not be able to see the full key again.
+    5.  **Set the Key in the Application:**
+        *   Go to the **"Settings"** page in the MyChart Explorer application.
+        *   Paste your copied API key into the field labeled **"Gemini API Key"**.
+        *   Click **"Save Settings"**.
+    
+    The application is now configured to use the Gemini models for inference.
+
+    > **Note for Power Users:** The free API key has usage limits. If you require more extensive use, you can enable billing on your Google Cloud project to access higher limits and paid tiers of the Gemini API.
+    """)

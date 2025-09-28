@@ -17,14 +17,19 @@ load_configuration()
 # Add an explanation of what to do
 st.write("Upload your MyChart XML files to get started. This will parse the data and store it in a local SQLite database.")
 
-# Add a text input for the database path
-db_path = st.text_input("Database file path", value="mychart.db")
+# Determine fixed per-user database path (set at login)
+db_path = st.session_state.get('db_path', 'mychart.db')
+st.info(f"Import will write to your private database: `{db_path}`")
 
 # Create a file uploader that accepts multiple files
 uploaded_files = st.file_uploader("Choose your MyChart XML files", type="xml", accept_multiple_files=True)
 
 # Check if files have been uploaded
 if uploaded_files:
+    clear_db = False
+    if os.path.exists(db_path):
+        clear_db = st.checkbox(f"Clear existing database '{db_path}' before importing.")
+
     # Create a button to start the import process
     if st.button("Import Data"):
         if not db_path:
@@ -33,8 +38,16 @@ if uploaded_files:
             # Show a spinner while the data is being imported
             with st.spinner(f'Importing data into {db_path}... This may take a moment.'):
                 try:
+                    # Ensure parent directory exists for user-specific paths
+                    os.makedirs(os.path.dirname(db_path) or '.', exist_ok=True)
+                    if clear_db and os.path.exists(db_path):
+                        os.remove(db_path)
+                        st.toast(f"Removed existing database: {db_path}")
+
                     # Initialize the database
-                    engine = get_db_engine(db_path)
+                    # Optional: support encryption if a passphrase exists in session
+                    db_key = st.session_state.get('db_encryption_key')
+                    engine = get_db_engine(db_path, key=db_key)
                     setup_database(engine)
                     # Create an DataImporter instance
                     parser = DataImporter(engine)

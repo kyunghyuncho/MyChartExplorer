@@ -24,7 +24,7 @@ if not st.session_state.get('data_imported', False):
 else:
     # If data has been imported, show the conversational explorer
     db_path = st.session_state.get('db_path', 'mychart.db')
-    engine = get_db_engine(db_path)
+    engine = get_db_engine(db_path, key=st.session_state.get('db_encryption_key'))
     session = get_session(engine)
     llm_service = LLMService(db_engine=engine)
 
