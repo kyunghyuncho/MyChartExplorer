@@ -3,17 +3,32 @@ import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 import secrets
+from modules.paths import get_config_yaml_path
+from pathlib import Path
 
 st.set_page_config(page_title="Register", layout="centered")
 st.title("Register a New User")
 
-# Load authenticator config
-try:
-    with open('config.yaml') as file:
-        config = yaml.load(file, Loader=SafeLoader)
-except FileNotFoundError:
-    st.error("`config.yaml` not found. Please create it.")
-    st.stop()
+# Load or create authenticator config
+cfg_path = get_config_yaml_path()
+cfg_file = Path(cfg_path)
+if not cfg_file.exists():
+    cfg_file.parent.mkdir(parents=True, exist_ok=True)
+    # Minimal default config
+    default_cfg = {
+        'credentials': {'usernames': {}},
+        'cookie': {
+            'name': 'mychart_auth',
+            'key': secrets.token_hex(16),
+            'expiry_days': 30,
+        },
+        'preauthorized': {'emails': []},
+    }
+    with cfg_file.open('w', encoding='utf-8') as f:
+        yaml.dump(default_cfg, f, default_flow_style=False)
+
+with cfg_file.open() as file:
+    config = yaml.load(file, Loader=SafeLoader)
 
 
 authenticator = stauth.Authenticate(
@@ -45,7 +60,7 @@ else:
             # Generate and persist a per-user DB encryption key
             db_key = secrets.token_hex(32)
             config.setdefault('credentials', {}).setdefault('usernames', {}).setdefault(username, {})['db_encryption_key'] = db_key
-            with open('config.yaml', 'w') as f:
+            with open(get_config_yaml_path(), 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
             st.success('User registered successfully. Please log in from Home.')
     except Exception as e:

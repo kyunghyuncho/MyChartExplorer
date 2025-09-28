@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import streamlit as st
+from .paths import get_global_config_json_path
 
 
 # Default config path (project-local); can be overridden per-user via session_state['config_path']
-DEFAULT_CONFIG_PATH = (Path(__file__).resolve().parent.parent / "config.json").as_posix()
+DEFAULT_CONFIG_PATH = get_global_config_json_path()
 
 
 def _get_active_config_path() -> str:

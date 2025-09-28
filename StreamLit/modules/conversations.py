@@ -4,12 +4,7 @@ import time
 from typing import List, Dict, Any
 from cryptography.fernet import Fernet
 import base64
-
-BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "conversations")
-BASE_DIR = os.path.abspath(BASE_DIR)
-
-def _ensure_dir() -> None:
-    os.makedirs(BASE_DIR, exist_ok=True)
+from .paths import get_conversations_dir
 
 def _slugify(name: str) -> str:
     safe = "".join(c if c.isalnum() or c in ("-", "_", ".", " ") else "-" for c in name).strip()
@@ -101,6 +96,4 @@ def _get_fernet(key: str) -> Fernet:
 
 def get_user_conversations_dir(username: str) -> str:
     """Get the path to the user's conversations directory."""
-    base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "user_data", username, "conversations"))
-    os.makedirs(base_path, exist_ok=True)
-    return base_path
+    return get_conversations_dir(username)

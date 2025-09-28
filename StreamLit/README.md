@@ -39,6 +39,26 @@ streamlit run Home.py
 
 The app is a multipage app. Use the left sidebar to navigate pages.
 
+## Data Directory (DATADIR)
+
+By default, the app stores its configuration and user data under the StreamLit folder:
+- config.yaml (authentication)
+- config.json (global settings when not logged in)
+- user_data/<username>/ (per-user DB, settings, and conversations)
+
+You can override this location by setting the DATADIR environment variable before launching the app:
+
+```bash
+export DATADIR="$HOME/.mychartexplorer"
+streamlit run Home.py
+```
+
+If DATADIR is not set, the current repository directory (StreamLit) is used.
+
+First run behavior:
+- If `config.yaml` does not exist at the chosen data directory, the app will automatically create a minimal one on first run.
+- Then, go to the Register page to add your first user. Per-user data will be created under `user_data/<username>/` in the same data directory.
+
 ## User Registration and Security
 
 This application supports multi-user environments by providing a user registration and login system.
@@ -72,6 +92,10 @@ This application supports multi-user environments by providing a user registrati
 Configure SSH host/user in Settings. Use the SSH Tunnel Control buttons to start/stop the tunnel.
 
 ## Troubleshooting
+- FileNotFoundError for `config.yaml`: On current versions, the app auto-creates a minimal `config.yaml` at startup. If you still see this error, confirm:
+  - You launched Streamlit from the same shell where you exported `DATADIR` (if using it).
+  - The data directory (e.g., `~/.mychartexplorer`) is writable.
+  - Alternatively, copy an existing `config.yaml` into your data directory.
 
 - "Import could not be resolved" in editor: ensure you’re using the `.venv` Python in your editor. The app still runs if packages are installed in `.venv`.
 - Widget state errors: Avoid setting widget-related keys in `st.session_state`. Configuration saves only whitelist known config keys.

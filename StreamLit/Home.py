@@ -4,6 +4,13 @@ import os
 from modules.config import load_configuration
 from modules.auth import get_authenticator
 from streamlit_authenticator.utilities.exceptions import LoginError
+from modules.paths import (
+    get_user_dir,
+    get_user_db_path,
+    get_user_config_json_path,
+    get_config_yaml_path,
+)
+from pathlib import Path
 
 # Set the title of the app
 st.set_page_config(
@@ -25,20 +32,36 @@ if "authentication_status" not in st.session_state:
 # --- Main Application Logic ---
 # User is already logged in
 if st.session_state.get("authentication_status"):
-    user_data_dir = os.path.join("user_data", st.session_state["username"])
-    os.makedirs(user_data_dir, exist_ok=True)
+    username = st.session_state["username"]
+    # Ensure per-user dir exists under DATADIR (or default)
+    _ = get_user_dir(username)
     
-    st.session_state['db_path'] = os.path.join(user_data_dir, "mychart.db")
-    st.session_state['config_path'] = os.path.join(user_data_dir, "config.json")
+    st.session_state['db_path'] = get_user_db_path(username)
+    st.session_state['config_path'] = get_user_config_json_path(username)
 
     # Retrieve and store the encryption key in the session
-    username = st.session_state["username"]
-
     # Read from config.yaml to get per-user db_encryption_key (avoid accessing authenticator internals)
     try:
         import yaml
         from yaml.loader import SafeLoader
-        with open('config.yaml') as f:
+        cfg_path = get_config_yaml_path()
+        p = Path(cfg_path)
+        if not p.exists():
+            p.parent.mkdir(parents=True, exist_ok=True)
+            # minimal default to avoid FileNotFoundError on first run
+            import secrets
+            default_cfg = {
+                'credentials': {'usernames': {}},
+                'cookie': {
+                    'name': 'mychart_auth',
+                    'key': secrets.token_hex(16),
+                    'expiry_days': 30,
+                },
+                'preauthorized': {'emails': []},
+            }
+            with p.open('w', encoding='utf-8') as f:
+                yaml.dump(default_cfg, f, default_flow_style=False)
+        with p.open() as f:
             cfg = yaml.load(f, Loader=SafeLoader) or {}
         user_creds = ((cfg.get('credentials') or {}).get('usernames') or {}).get(username, {})
         db_key = user_creds.get('db_encryption_key')
