@@ -271,8 +271,19 @@ class LLMService:
             # Generate SQL using Ollama
             return self._query_ollama(prompt, cfg)
         elif cfg["llm_provider"] == "gemini":
-            # Generate SQL using Gemini
-            return self._query_gemini(prompt, cfg)
+            # Generate SQL using Gemini (strict, plain text)
+            sys_inst = (
+                "You are a SQLite query generator. Output exactly one valid SQLite statement that starts with SELECT or WITH. "
+                "No markdown, no explanations, no comments, no code fences. Do not use parameters; inline literal values. "
+                "Use only columns from the provided schema and avoid fabricating columns or labels."
+            )
+            return self._query_gemini(
+                prompt,
+                cfg,
+                response_mime_type="text/plain",
+                temperature=0.1,
+                system_instruction=sys_inst,
+            )
         else:
             # Raise an error if the provider is not supported
             raise ValueError("Unsupported LLM provider")
@@ -307,7 +318,17 @@ Retrieval-only rules (strict):
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(prompt, cfg)
         elif cfg["llm_provider"] == "gemini":
-            return self._query_gemini(prompt, cfg)
+            sys_inst = (
+                "You produce only a compact JSON array of strings. Each string is one valid SQLite SELECT or WITH statement. "
+                "No markdown, no comments, no additional text. Do not use parameters; inline literal values."
+            )
+            return self._query_gemini(
+                prompt,
+                cfg,
+                response_mime_type="application/json",
+                temperature=0.1,
+                system_instruction=sys_inst,
+            )
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -369,9 +390,20 @@ Do NOT use parameters (? or :name); inline literal values only.
 {('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
             """
             cfg = self._load_config()
-            raw_sql = (self._query_ollama(retry_prompt, cfg)
-                       if cfg["llm_provider"] == "ollama"
-                       else self._query_gemini(retry_prompt, cfg))
+            raw_sql = (
+                self._query_ollama(retry_prompt, cfg)
+                if cfg["llm_provider"] == "ollama"
+                else self._query_gemini(
+                    retry_prompt,
+                    cfg,
+                    response_mime_type="text/plain",
+                    temperature=0.1,
+                    system_instruction=(
+                        "You are a SQLite query generator. Return exactly one corrected valid SQLite statement that starts with SELECT or WITH. "
+                        "No markdown, no explanations, no comments, no code fences. Do not use parameters; inline literal values."
+                    ),
+                )
+            )
             sql_query = self._sanitize_sql(raw_sql)
             sql_query = self._inline_patient_id(sql_query)
             if not sql_query:
@@ -397,9 +429,20 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
 {self._get_db_schema()}
             """
             cfg = self._load_config()
-            raw_sql2 = (self._query_ollama(retry_prompt, cfg)
-                        if cfg["llm_provider"] == "ollama"
-                        else self._query_gemini(retry_prompt, cfg))
+            raw_sql2 = (
+                self._query_ollama(retry_prompt, cfg)
+                if cfg["llm_provider"] == "ollama"
+                else self._query_gemini(
+                    retry_prompt,
+                    cfg,
+                    response_mime_type="text/plain",
+                    temperature=0.1,
+                    system_instruction=(
+                        "You are a SQLite query generator. Return exactly one corrected valid SQLite statement that starts with SELECT or WITH. "
+                        "No markdown, no explanations, no comments, no code fences. Do not use parameters; inline literal values."
+                    ),
+                )
+            )
             sql2 = self._sanitize_sql(raw_sql2)
             sql2 = self._inline_patient_id(sql2)
             if not sql2:
@@ -434,9 +477,20 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
 {self._get_db_schema()}
                     """
                     cfg = self._load_config()
-                    raw_sql2 = (self._query_ollama(retry_prompt, cfg)
-                                if cfg["llm_provider"] == "ollama"
-                                else self._query_gemini(retry_prompt, cfg))
+                    raw_sql2 = (
+                        self._query_ollama(retry_prompt, cfg)
+                        if cfg["llm_provider"] == "ollama"
+                        else self._query_gemini(
+                            retry_prompt,
+                            cfg,
+                            response_mime_type="text/plain",
+                            temperature=0.1,
+                            system_instruction=(
+                                "You are a SQLite query generator. Return exactly one corrected valid SQLite statement that starts with SELECT or WITH. "
+                                "No markdown, no explanations, no comments, no code fences. Do not use parameters; inline literal values."
+                            ),
+                        )
+                    )
                     sql2 = self._sanitize_sql(raw_sql2)
                     sql2 = self._inline_patient_id(sql2)
                     if sql2:
@@ -539,19 +593,55 @@ Answer the following question: "{question}"
         # Parse the JSON response and return the content
         return response.json()["response"].strip()
 
-    def _query_gemini(self, prompt, cfg=None):
+    def _query_gemini(
+        self,
+        prompt: str,
+        cfg=None,
+        response_mime_type: str | None = None,
+        temperature: float | None = None,
+        system_instruction: str | None = None,
+    ):
         """
-        Queries the Gemini API.
+        Queries the Gemini API with optional system instructions and response MIME type control.
+        Defaults remain compatible with older usage.
         """
         cfg = cfg or self._load_config()
-        # Configure the Gemini API with the API key
         genai.configure(api_key=cfg["gemini_api_key"])
-        # Create a generative model instance
-        model = genai.GenerativeModel(cfg["gemini_model"])
-        # Generate content using the model
-        response = model.generate_content(prompt)
-        # Return the generated text
-        return response.text.strip()
+        generation_config = {}
+        if temperature is not None:
+            generation_config["temperature"] = temperature
+        if response_mime_type:
+            generation_config["response_mime_type"] = response_mime_type
+        # Instantiate model with optional system instruction
+        if system_instruction:
+            model = genai.GenerativeModel(
+                cfg["gemini_model"], system_instruction=system_instruction
+            )
+        else:
+            model = genai.GenerativeModel(cfg["gemini_model"])
+        # Generate content
+        if generation_config:
+            response = model.generate_content(prompt, generation_config=generation_config)
+        else:
+            response = model.generate_content(prompt)
+        # Safely extract text across SDK versions
+        text = None
+        try:
+            if hasattr(response, "text") and response.text:
+                text = response.text
+            elif hasattr(response, "candidates") and response.candidates:
+                # Some versions provide parts
+                parts = []
+                for c in response.candidates:
+                    if getattr(c, "content", None) and getattr(c.content, "parts", None):
+                        for p in c.content.parts:
+                            if hasattr(p, "text") and p.text:
+                                parts.append(p.text)
+                text = "\n".join(parts)
+        except Exception:
+            text = None
+        text = (text or "").strip()
+        return text
 
     def ask_question(self, question):
         """Backward-compatible single-step ask that uses the new pipeline."""

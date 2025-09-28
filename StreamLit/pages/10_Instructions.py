@@ -13,9 +13,14 @@ tab1, tab2, tab3 = st.tabs(["Data Ingestion", "Ollama Setup (Local AI)", "Gemini
 with tab1:
     st.header("Step 1: Download Your MyChart Data")
     st.markdown("""
-    To get started, you need to download your health records from your MyChart patient portal. The file you need is an XML file containing your health data.
+    To get started, you need to download your health records from your patient portal. 
+    The file you need is a set of XML files containing your health data.
+    """)
 
-    **Example: Downloading from NYU Langone Health**
+    st.subheader("Example: Downloading from NYU Langone Health")
+
+    st.markdown("""
+    To get started, you need to download your health records from your MyChart patient portal. The file you need is an XML file containing your health data.
 
     1.  Log in to your **NYU Langone Health MyChart** account.
     2.  Navigate to the **"Menu"**.
@@ -28,6 +33,24 @@ with tab1:
     > **Disclaimer:** Your health data is sensitive and private. This application is designed to run locally on your machine. Your data is not uploaded to any external servers when you use this tool. You are responsible for securely storing your downloaded data file.
     """)
 
+    st.subheader("Example: Downloading from an Athenahealth Patient Portal")
+    st.markdown(
+        """
+        Menus can vary by practice, but most Athenahealth-powered portals follow a similar flow. For example, at
+        Sullivan Street Medical (Midtown Manhattan):
+
+        1. Log in to your practice's **Athenahealth** patient portal.
+        2. Open the main **Menu** and go to **My Health** (or **Health Record/Medical Records**).
+        3. Find **Download/Export Health Record** (sometimes labeled **Download My Record** or **Export**).
+        4. Choose the document type: **Continuity of Care Document (CCD)** or **Summary of Care**.
+        5. Select the format: **XML** or **C-CDA (XML)**.
+        6. Pick a date range or choose **All available**.
+        7. Click **Download**. Save the file (e.g., `Patient_Summary.xml`).
+
+        You can now import this XML on the **Data Importer** page.
+        """
+    )
+
     st.header("Step 2: Import Your Data")
     st.markdown("""
     Once you have the XML file:
@@ -36,6 +59,10 @@ with tab1:
     3.  The application will process and import your data into a local, private database.
     4.  You will see a confirmation message once the import is complete. You can then proceed to the **"MyChart Explorer"** to start asking questions.
     """)
+    st.info(
+        "Tested systems: Epic/MyChart (e.g., NYU Langone Health) and AthenaHealth (Sullivan Street Medical, Midtown Manhattan). Other portals that export CCDA/XML may also work.",
+        icon="✅",
+    )
 
 with tab2:
     st.header("How to Install Ollama for Local Inference")

@@ -76,6 +76,19 @@ This application supports multi-user environments by providing a user registrati
 - Settings: configure LLM backend, models, Gemini key, and SSH tunnel.
 - Instructions: How to use the app.
 
+## Tested Data Sources
+
+- Epic/MyChart (e.g., NYU Langone Health): XML export imported successfully via Data Importer.
+- AthenaHealth (Sullivan Street Medical, Midtown Manhattan): XML export imported successfully.
+
+Other portals that provide a CCDA/XML export may work as well, but only the above have been explicitly tested so far.
+
+## Database Schema
+
+For reference during development and debugging:
+- Human-readable schema: `docs/SCHEMA.md`
+- SQLite DDL: `schema.sql`
+
 ## Backends: Ollama and Gemini
 
 - Switch backend in two places:
