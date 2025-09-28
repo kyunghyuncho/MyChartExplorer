@@ -67,9 +67,7 @@ else:
             users = config.setdefault('credentials', {}).setdefault('usernames', {})
             user_entry = users.setdefault(username, {})
             user_entry['db_encryption_key'] = db_key
-            # If this is the first user, make them superuser
-            if len(users) == 1:
-                user_entry['superuser'] = True
+            # Do not auto-promote the first user; superuser must be granted explicitly by an admin
             with open(get_config_yaml_path(), 'w') as f:
                 yaml.dump(config, f, default_flow_style=False)
             try:
