@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from cryptography.fernet import Fernet
 import base64
 from .paths import get_conversations_dir
@@ -33,7 +33,14 @@ def list_conversations(username: str, key: str) -> List[Dict[str, Any]]:
     items.sort(key=lambda x: x.get("updated_at") or 0, reverse=True)
     return items
 
-def save_conversation(messages: List[Dict[str, str]], username: str, key: str, title: str | None = None, conv_id: str | None = None) -> str:
+def save_conversation(
+    messages: List[Dict[str, str]],
+    username: str,
+    key: str,
+    title: Optional[str] = None,
+    conv_id: Optional[str] = None,
+    sql_history: Optional[List[str]] = None,
+) -> str:
     conv_dir = get_user_conversations_dir(username)
     fernet = _get_fernet(key)
     now = int(time.time())
@@ -50,6 +57,9 @@ def save_conversation(messages: List[Dict[str, str]], username: str, key: str, t
         "created_at": now,
         "updated_at": now,
         "messages": messages,
+        # Persist successful SQL statements so rows can be reconstructed on load
+        "sql_history": list(sql_history or []),
+        "version": 1,
     }
     
     encrypted_data = fernet.encrypt(json.dumps(data).encode('utf-8'))
@@ -78,7 +88,11 @@ def load_conversation(conv_id: str, username: str, key: str) -> Dict[str, Any] |
         
     try:
         decrypted_data = fernet.decrypt(encrypted_data)
-        return json.loads(decrypted_data.decode('utf-8'))
+        data = json.loads(decrypted_data.decode('utf-8'))
+        # Ensure keys exist for older files
+        if "sql_history" not in data:
+            data["sql_history"] = []
+        return data
     except Exception:
         return None
 

@@ -589,6 +589,63 @@ Answer the following question: "{question}"
         else:
             raise ValueError("Unsupported LLM provider")
 
+    def consult_conversation(self, chat_history: list[dict], rows_history: list[list]) -> str:
+        """Consult using the full conversation so far and all retrieved data so far.
+
+        - Includes patient context
+        - Summarizes conversation (last ~12 messages) with role labels
+        - Includes previews from all result sets gathered so far (up to 8 sets, 10 rows each)
+        - Asks the model to answer the last user question
+        """
+        # Build conversation transcript
+        hist = chat_history or []
+        # keep the last 12 messages for brevity
+        hist_tail = hist[-12:]
+        lines = []
+        for m in hist_tail:
+            role = m.get("role", "user")
+            role_label = "User" if role == "user" else "Assistant"
+            content = str(m.get("content", "")).strip()
+            if content:
+                lines.append(f"{role_label}: {content}")
+        convo_str = "\n".join(lines) if lines else "(no prior conversation)"
+
+        # Build results previews
+        previews = []
+        max_sets = 8
+        for idx, rows in enumerate(rows_history[:max_sets], 1):
+            if not rows:
+                continue
+            subset = rows[:10]
+            previews.append(f"-- Result set {idx} --\n" + "\n".join(str(r) for r in subset))
+        results_str = "\n\n".join(previews) if previews else "(no rows collected)"
+
+        # Last user question (fallback to empty)
+        last_q = next((m.get("content") for m in reversed(hist_tail) if m.get("role") == "user"), "")
+
+        patient_context = self._get_patient_context_text()
+        final_prompt = f"""
+Patient context:
+{patient_context}
+
+Conversation so far:
+{convo_str}
+
+Data gathered so far (across multiple queries and turns):
+{results_str}
+
+Task:
+Provide the best possible, accurate, and concise answer to the last user question in the conversation above.
+If the data is insufficient, state clearly what is missing or cannot be concluded from the available records.
+"""
+        cfg = self._load_config()
+        if cfg["llm_provider"] == "ollama":
+            return self._query_ollama(final_prompt, cfg)
+        elif cfg["llm_provider"] == "gemini":
+            return self._query_gemini(final_prompt, cfg)
+        else:
+            raise ValueError("Unsupported LLM provider")
+
     def _summarize_notes(self, notes):
         """
         Summarizes a list of clinical notes.

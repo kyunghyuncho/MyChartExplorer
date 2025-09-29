@@ -3,6 +3,7 @@
 
 # Import necessary libraries
 import streamlit as st
+import streamlit.components.v1 as components
 import re
 st.set_page_config(page_title="MyChart Explorer", layout="wide")
 from modules.database import get_session, get_db_engine
@@ -41,6 +42,12 @@ else:
     st.session_state.setdefault('consult_ready', False)
     st.session_state.setdefault('should_start_retrieval', False)
     st.session_state.setdefault('retrieval_in_progress', False)
+    # Keep a cumulative history of retrieved rows across the conversation
+    st.session_state.setdefault('rows_history', [])  # list[list[row]]
+    # Persist successful SQL statements to allow reconstruction when loading a saved conversation
+    st.session_state.setdefault('sql_history', [])  # list[str]
+    # UI: whether to scroll to the last assistant message on rerun
+    st.session_state.setdefault('scroll_to_last_assistant', False)
 
     # Sidebar: conversation management and backend selection
     with st.sidebar:
@@ -107,6 +114,18 @@ else:
 
         st.markdown("---")
 
+        # Auto-consult toggle (persisted)
+        st.subheader("Behavior")
+        st.session_state.setdefault("auto_consult", st.session_state.get("auto_consult", True))
+        prev_auto = bool(st.session_state.get("auto_consult", True))
+        auto_on = st.checkbox("Automatically consult after retrieval", value=prev_auto, help="When enabled, the assistant will respond immediately after data is retrieved.")
+        if auto_on != prev_auto:
+            st.session_state["auto_consult"] = auto_on
+            # Persist to config
+            save_configuration({"auto_consult": auto_on})
+
+        st.markdown("---")
+
         st.subheader("Conversations")
         
         username = st.session_state.get("username")
@@ -131,14 +150,43 @@ else:
                 st.session_state['last_rows'] = None
                 st.session_state['pending_question'] = None
                 st.session_state['consult_ready'] = False
+                st.session_state['last_batch'] = None
+                st.session_state['rows_history'] = []
+                # Restore saved SQL history (if available) and rebuild rows for context
+                st.session_state['sql_history'] = data.get('sql_history', [])
+                rebuilt = 0
+                if st.session_state['sql_history']:
+                    with st.spinner("Rebuilding retrieved data from saved SQL…"):
+                        for _sql in st.session_state['sql_history']:
+                            try:
+                                clean = llm_service._sanitize_sql(_sql)
+                                clean = llm_service._inline_patient_id(clean)
+                                if not clean:
+                                    continue
+                                rows = llm_service.execute_sql(clean)
+                                if rows:
+                                    st.session_state['rows_history'].append(rows)
+                                    rebuilt += 1
+                            except Exception:
+                                continue
                 st.success("Conversation loaded.")
+                if rebuilt:
+                    st.caption(f"Restored {rebuilt} data set(s) for context.")
+                # After loading, position the view at the last assistant message (if any)
+                st.session_state['scroll_to_last_assistant'] = True
         
         with st.form("save_conv_form", clear_on_submit=True):
             title = st.text_input("Title", value="")
             save_clicked = st.form_submit_button("Save conversation")
             if save_clicked:
                 if st.session_state['chat_history'] and username and key:
-                    conv_id = save_conversation(st.session_state['chat_history'], username, key, title=title or None)
+                    conv_id = save_conversation(
+                        st.session_state['chat_history'],
+                        username,
+                        key,
+                        title=title or None,
+                        sql_history=st.session_state.get('sql_history') or [],
+                    )
                     st.success(f"Saved as {conv_id}")
                     st.rerun()
                 elif not (username and key):
@@ -171,6 +219,29 @@ else:
                 st.session_state['last_sql'] = first_ok.get('sql') if first_ok else None
                 st.session_state['last_rows'] = first_ok.get('rows') if first_ok else None
                 st.session_state['consult_ready'] = True
+                # Append all successful rows from this turn to the cumulative rows_history
+                try:
+                    for item in (batch or []):
+                        rows = item.get('rows') or []
+                        if rows:
+                            st.session_state['rows_history'].append(rows)
+                            # Track successful SQL for persistence
+                            sql = item.get('sql')
+                            if sql:
+                                st.session_state['sql_history'].append(sql)
+                except Exception:
+                    pass
+                # If auto-consult is enabled, immediately run consultation and append answer
+                if st.session_state.get('auto_consult', True) and st.session_state.get('pending_question'):
+                    try:
+                        rows_history = st.session_state.get('rows_history') or []
+                        answer = llm_service.consult_conversation(st.session_state['chat_history'], rows_history)
+                        st.session_state['chat_history'].append({"role": "assistant", "content": answer})
+                        st.session_state['scroll_to_last_assistant'] = True
+                        st.session_state['pending_question'] = None
+                        st.session_state['consult_ready'] = False
+                    except Exception as e:
+                        st.error(f"An error occurred during consultation: {e}")
         except Exception as e:
             st.error(f"An error occurred while retrieving data: {e}")
         finally:
@@ -181,10 +252,32 @@ else:
 
     with tab_conv:
         st.subheader("Conversation")
-        # Render history
-        for msg in st.session_state['chat_history']:
-            with st.chat_message(msg['role']):
-                st.markdown(msg['content'])
+        # Render history with anchor ids for assistant messages
+        last_assistant_anchor = None
+        for i, msg in enumerate(st.session_state['chat_history']):
+            role = msg.get('role', 'user')
+            # Inject a small anchor before assistant messages to allow scrolling
+            if role == 'assistant':
+                anchor_id = f"assistant-msg-{i}"
+                # invisible anchor
+                st.markdown(f'<a id="{anchor_id}"></a>', unsafe_allow_html=True)
+                last_assistant_anchor = anchor_id
+            with st.chat_message(role):
+                st.markdown(msg.get('content', ''))
+
+        # If requested, scroll to the last assistant anchor after render
+        if st.session_state.get('scroll_to_last_assistant') and last_assistant_anchor:
+            components.html(
+                f"""
+                <script>
+                const el = document.getElementById('{last_assistant_anchor}');
+                if (el) {{ el.scrollIntoView({{ behavior: 'smooth', block: 'center' }}); }}
+                </script>
+                """,
+                height=0,
+            )
+            # Reset the flag
+            st.session_state['scroll_to_last_assistant'] = False
 
         # Input
         user_input = st.chat_input("Ask about your health data…")
@@ -209,6 +302,8 @@ else:
                 st.session_state['last_batch'] = None
                 st.session_state['pending_question'] = None
                 st.session_state['consult_ready'] = False
+                st.session_state['rows_history'] = []
+                st.session_state['sql_history'] = []
                 st.rerun()
 
         with col1_b:
@@ -217,13 +312,12 @@ else:
                 if st.button("Consult", type="primary", key="consult_btn"):
                     try:
                         with st.spinner("Consulting…"):
-                            rows_list = []
-                            if st.session_state.get('last_batch'):
-                                rows_list = [item.get('rows', []) for item in st.session_state['last_batch']]
-                            else:
-                                rows_list = [st.session_state.get('last_rows') or []]
-                            answer = llm_service.consult_multi(st.session_state['pending_question'], rows_list)
+                            # Use the full chat history and all retrieved data so far
+                            rows_history = st.session_state.get('rows_history') or []
+                            answer = llm_service.consult_conversation(st.session_state['chat_history'], rows_history)
                         st.session_state['chat_history'].append({"role": "assistant", "content": answer})
+                        # Ask UI to scroll to the latest assistant message
+                        st.session_state['scroll_to_last_assistant'] = True
                         # Clear pending state but keep last retrieval visible in the other tab
                         st.session_state['pending_question'] = None
                         st.session_state['consult_ready'] = False

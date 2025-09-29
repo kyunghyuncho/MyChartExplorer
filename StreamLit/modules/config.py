@@ -38,6 +38,8 @@ def _default_config() -> dict:
         "ollama_model": "gpt-oss:20b",
         "gemini_api_key": "",
     "gemini_model": "gemini-2.5-pro",
+    # Automatically run consultation after retrieval completes
+    "auto_consult": True,
     # Max allowed size for the user's SQLite DB in megabytes
     "db_size_limit_mb": 100,
         "ssh_host": "",
