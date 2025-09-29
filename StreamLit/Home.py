@@ -111,7 +111,7 @@ if st.session_state.get("authentication_status"):
     # Sidebar quick links (kept minimal)
     st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
     st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
-    st.sidebar.markdown("[License (MIT)](../LICENSE)")
+    st.sidebar.markdown("[License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
 
 # User is not logged in
 else:
@@ -132,7 +132,7 @@ else:
     # Sidebar quick links (kept minimal)
     st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
     st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
-    st.sidebar.markdown("[License (MIT)](../LICENSE)")
+    st.sidebar.markdown("[License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
 
     st.divider()
     st.caption("© 2025 Kyunghyun Cho — MIT License. See the LICENSE file in the repository.")
