@@ -567,9 +567,8 @@ Answer the following question: "{question}"
         for idx, rows in enumerate(rows_list, 1):
             if not rows:
                 continue
-            # take up to 10 rows per set
-            subset = rows[:10]
-            previews.append(f"-- Result set {idx} --\n" + "\n".join(str(r) for r in subset))
+            subset_lines = self._preview_rows(rows)
+            previews.append(f"-- Result set {idx} --\n" + "\n".join(subset_lines))
         results_str = "\n\n".join(previews) if previews else "(no rows)"
         patient_context = self._get_patient_context_text()
         final_prompt = f"""
@@ -612,12 +611,12 @@ Answer the following question: "{question}"
 
         # Build results previews
         previews = []
-        max_sets = 8
+        max_sets = self._get_preview_limits()[2]
         for idx, rows in enumerate(rows_history[:max_sets], 1):
             if not rows:
                 continue
-            subset = rows[:10]
-            previews.append(f"-- Result set {idx} --\n" + "\n".join(str(r) for r in subset))
+            subset_lines = self._preview_rows(rows)
+            previews.append(f"-- Result set {idx} --\n" + "\n".join(subset_lines))
         results_str = "\n\n".join(previews) if previews else "(no rows collected)"
 
         # Last user question (fallback to empty)
@@ -645,6 +644,138 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
             return self._query_gemini(final_prompt, cfg)
         else:
             raise ValueError("Unsupported LLM provider")
+
+    # ---------------- Preview helpers -----------------
+    def _get_preview_limits(self) -> tuple[int, int, int]:
+        """Return (max_rows_per_set, char_budget_per_set, max_sets) with sensible defaults.
+
+        Values can be overridden via Streamlit session_state keys:
+        - preview_max_rows_per_set (int)
+        - preview_char_budget_per_set (int)
+        - preview_max_sets (int)
+        """
+        try:
+            mr = int(st.session_state.get("preview_max_rows_per_set", 20))
+        except Exception:
+            mr = 20
+        try:
+            cb = int(st.session_state.get("preview_char_budget_per_set", 3000))
+        except Exception:
+            cb = 3000
+        try:
+            ms = int(st.session_state.get("preview_max_sets", 8))
+        except Exception:
+            ms = 8
+        # clamp to reasonable bounds
+        mr = max(1, min(100, mr))
+        cb = max(500, min(20000, cb))
+        ms = max(1, min(16, ms))
+        return mr, cb, ms
+
+    def _preview_rows(self, rows) -> list[str]:
+        """Build a compact, informative preview of a result set.
+
+        - Prefers most recent rows if a date-like column exists
+        - Limits total rows and characters for prompt efficiency
+        - Produces readable key=value summaries for mapping rows
+        """
+        if not rows:
+            return []
+
+        max_rows, char_budget, _ = self._get_preview_limits()
+
+        # Work on a shallow copy to avoid mutating caller's list
+        rows_local = list(rows)
+
+        # Detect mapping rows and columns
+        mapping_mode = hasattr(rows_local[0], "_mapping")
+        cols = []
+        if mapping_mode:
+            try:
+                cols = list(rows_local[0]._mapping.keys())
+            except Exception:
+                cols = []
+
+        # If a date-like column exists, sort by it descending
+        date_cols_pref = [
+            "note_date", "result_date", "date", "datetime", "visit_date", "encounter_date",
+            "start_date", "end_date", "performed_date", "observation_date", "collected_date",
+        ]
+
+        def _row_get(r, k):
+            try:
+                return r._mapping.get(k)
+            except Exception:
+                return None
+
+        date_col = None
+        if mapping_mode and cols:
+            for c in date_cols_pref:
+                if c in cols:
+                    date_col = c
+                    break
+            if date_col is not None:
+                try:
+                    def _key(r):
+                        v = _row_get(r, date_col)
+                        d = self._parse_date(str(v)) if v is not None else None
+                        # sort None last
+                        return (d is None, d)
+                    rows_local.sort(key=_key, reverse=True)
+                except Exception:
+                    pass
+
+        # Choose a small, meaningful subset of columns for display
+        preferred_cols = [
+            "id", date_col or "", "note_title", "title", "name", "test", "component",
+            "value", "result", "unit", "status", "provider", "code",
+        ]
+        preferred_cols = [c for c in preferred_cols if c and (not cols or c in cols)]
+        if mapping_mode and not preferred_cols and cols:
+            preferred_cols = cols[:6]
+
+        lines: list[str] = []
+        used_chars = 0
+        for r in rows_local[: max_rows * 2]:  # allow a little slack pre-truncation
+            if used_chars >= char_budget or len(lines) >= max_rows:
+                break
+            try:
+                if mapping_mode:
+                    m = r._mapping
+                    parts = []
+                    for c in preferred_cols:
+                        v = m.get(c)
+                        if v is None:
+                            continue
+                        sv = str(v)
+                        # truncate very long fields
+                        if len(sv) > 200:
+                            sv = sv[:197] + "..."
+                        parts.append(f"{c}={sv}")
+                    if not parts:
+                        # fallback to full mapping limited
+                        raw = dict(m)
+                        s = str(raw)
+                    else:
+                        s = "; ".join(parts)
+                else:
+                    s = str(r)
+                    if len(s) > 300:
+                        s = s[:297] + "..."
+            except Exception:
+                s = str(r)
+
+            # respect remaining budget
+            if used_chars + len(s) > char_budget:
+                # take only what fits (if any)
+                remaining = max(0, char_budget - used_chars)
+                if remaining < 10:  # too tight to be useful
+                    break
+                s = s[: remaining - 3] + "..."
+            lines.append(s)
+            used_chars += len(s)
+
+        return lines[:max_rows]
 
     def _summarize_notes(self, notes):
         """
