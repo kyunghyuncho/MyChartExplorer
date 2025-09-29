@@ -172,3 +172,39 @@ def set_db_size_limit_mb(mb: int) -> None:
     data = _read_json(global_path)
     data["db_size_limit_mb"] = max(1, mb)
     _write_json(global_path, data)
+
+
+# -------- Global LLM preview limits (admin-only) --------
+def get_preview_limits_global() -> tuple[int, int, int]:
+    """Return (max_rows_per_set, char_budget_per_set, max_sets) from global config with defaults.
+
+    Defaults: rows=20, char_budget=3000, sets=8
+    """
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    def _get_int(name: str, default: int, lo: int, hi: int) -> int:
+        try:
+            v = int((data or {}).get(name, default))
+            return max(lo, min(hi, v))
+        except Exception:
+            return default
+    rows = _get_int("preview_max_rows_per_set", 20, 1, 100)
+    budget = _get_int("preview_char_budget_per_set", 3000, 500, 20000)
+    sets = _get_int("preview_max_sets", 8, 1, 16)
+    return rows, budget, sets
+
+
+def set_preview_limits_global(max_rows_per_set: int, char_budget_per_set: int, max_sets: int) -> None:
+    """Persist preview limits into the global config.json (admin-only)."""
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    def _clamp(v, lo, hi):
+        try:
+            v = int(v)
+        except Exception:
+            return lo
+        return max(lo, min(hi, v))
+    data["preview_max_rows_per_set"] = _clamp(max_rows_per_set, 1, 100)
+    data["preview_char_budget_per_set"] = _clamp(char_budget_per_set, 500, 20000)
+    data["preview_max_sets"] = _clamp(max_sets, 1, 16)
+    _write_json(global_path, data)

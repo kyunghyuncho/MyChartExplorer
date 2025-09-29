@@ -9,6 +9,10 @@ from modules.admin import (
     export_user_zip,
     delete_user_data,
 )
+from modules.config import (
+    get_preview_limits_global,
+    set_preview_limits_global,
+)
 
 
 st.set_page_config(page_title="Admin", layout="wide")
@@ -22,6 +26,19 @@ if not current_user or not is_superuser(current_user):
     st.stop()
 
 st.success(f"Signed in as {st.session_state.get('name')} (superuser)")
+
+st.subheader("LLM Preview Settings")
+cur_rows, cur_budget, cur_sets = get_preview_limits_global()
+colp1, colp2, colp3 = st.columns(3)
+with colp1:
+    rows = st.number_input("Max rows per set", min_value=1, max_value=100, value=int(cur_rows))
+with colp2:
+    budget = st.number_input("Char budget per set", min_value=500, max_value=20000, value=int(cur_budget), step=100)
+with colp3:
+    sets = st.number_input("Max sets included", min_value=1, max_value=16, value=int(cur_sets))
+if st.button("Save Preview Settings"):
+    set_preview_limits_global(rows, budget, sets)
+    st.success("Preview settings saved.")
 
 st.subheader("Users")
 rows = list_users()

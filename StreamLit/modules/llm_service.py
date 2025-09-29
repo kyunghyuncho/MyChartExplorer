@@ -8,6 +8,7 @@ import requests
 import json
 import re
 from sqlalchemy import text, inspect
+from .config import get_preview_limits_global
 from datetime import date, datetime
 
 class LLMService:
@@ -649,23 +650,13 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
     def _get_preview_limits(self) -> tuple[int, int, int]:
         """Return (max_rows_per_set, char_budget_per_set, max_sets) with sensible defaults.
 
-        Values can be overridden via Streamlit session_state keys:
-        - preview_max_rows_per_set (int)
-        - preview_char_budget_per_set (int)
-        - preview_max_sets (int)
+        Values are admin-configured globally in the Admin Console.
         """
+        # Read admin/global limits; fall back to built-in defaults if unavailable
         try:
-            mr = int(st.session_state.get("preview_max_rows_per_set", 20))
+            mr, cb, ms = get_preview_limits_global()
         except Exception:
-            mr = 20
-        try:
-            cb = int(st.session_state.get("preview_char_budget_per_set", 3000))
-        except Exception:
-            cb = 3000
-        try:
-            ms = int(st.session_state.get("preview_max_sets", 8))
-        except Exception:
-            ms = 8
+            mr, cb, ms = (20, 3000, 8)
         # clamp to reasonable bounds
         mr = max(1, min(100, mr))
         cb = max(500, min(20000, cb))
