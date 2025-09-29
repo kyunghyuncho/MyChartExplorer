@@ -252,8 +252,12 @@ class LLMService:
         schema = self._get_db_schema()
         # Create the prompt for the LLM
         # Try to include current patient_id to discourage parameters
-        pid = self._get_current_patient_id()
-        pid_hint = f"Use patient_id = {pid} where relevant." if pid is not None else "Filter correctly by patient when needed."
+        pids = self._get_current_patient_ids()
+        if pids:
+            pid_list = ", ".join(str(i) for i in pids)
+            pid_hint = f"Use patient_id IN ({pid_list}) where relevant."
+        else:
+            pid_hint = "Filter correctly by patient when needed."
         prompt = f"""
         Given the following database schema:
         {schema}
@@ -300,8 +304,12 @@ class LLMService:
     def _generate_sql_batch(self, question: str, max_queries: int = 4) -> str:
         """Ask the LLM for multiple small, focused SQL queries as a JSON array of strings."""
         schema = self._get_db_schema()
-        pid = self._get_current_patient_id()
-        pid_hint = f"Use patient_id = {pid} where relevant." if pid is not None else "Filter correctly by patient when needed."
+        pids = self._get_current_patient_ids()
+        if pids:
+            pid_list = ", ".join(str(i) for i in pids)
+            pid_hint = f"Use patient_id IN ({pid_list}) where relevant."
+        else:
+            pid_hint = "Filter correctly by patient when needed."
         prompt = f"""
 Given the following database schema:
 {schema}
@@ -394,9 +402,9 @@ Question: {question}
 Schema:
 {self._get_db_schema()}
 
-Return a single valid SQLite SELECT or WITH query only. No markdown, no code fences, no comments.
+Return a single valid SQLite SELECT OR WITH query only. No markdown, no code fences, no comments.
 Do NOT use parameters (? or :name); inline literal values only.
-{('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
+{('Use patient_id IN (' + ', '.join(str(i) for i in self._get_current_patient_ids()) + ') where relevant.') if self._get_current_patient_ids() else ''}
             """
             cfg = self._load_config()
             raw_sql = (
@@ -434,7 +442,7 @@ Previous SQL:
 
 Using the schema below, produce a corrected single SELECT/WITH statement for SQLite.
 It must be valid SQL, no markdown, no comments, no code fences. Do NOT use parameters (? or :name); inline literal values only.
-{('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
+{('Use patient_id IN (' + ', '.join(str(i) for i in self._get_current_patient_ids()) + ') where relevant.') if self._get_current_patient_ids() else ''}
 {self._get_db_schema()}
             """
             cfg = self._load_config()
@@ -470,20 +478,37 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
         extra_queries: list[str] = []
         if self._has_table("notes"):
             # Always include a recent-notes overview
-            extra_queries.append(
-                "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet FROM notes ORDER BY note_date DESC LIMIT 10;"
-            )
+            if self._table_has_column("notes", "patient_id") and self._get_current_patient_ids():
+                pid_list = ", ".join(str(i) for i in self._get_current_patient_ids())
+                extra_queries.append(
+                    "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet FROM notes "
+                    f"WHERE patient_id IN ({pid_list}) ORDER BY note_date DESC LIMIT 10;"
+                )
+            else:
+                extra_queries.append(
+                    "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet FROM notes ORDER BY note_date DESC LIMIT 10;"
+                )
             # If the question appears to target narrative content, add simple keyword searches
             if self._is_notes_intent(question):
                 for kw in self._extract_keywords(question)[:4]:
                     # Escape single quotes for SQL literal
                     safe = kw.replace("'", "''")
-                    extra_queries.append(
-                        "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet "
-                        "FROM notes "
-                        f"WHERE lower(note_title) LIKE '%{safe.lower()}%' OR lower(note_content) LIKE '%{safe.lower()}%' "
-                        "ORDER BY note_date DESC LIMIT 20;"
-                    )
+                    if self._table_has_column("notes", "patient_id") and self._get_current_patient_ids():
+                        pid_list = ", ".join(str(i) for i in self._get_current_patient_ids())
+                        extra_queries.append(
+                            "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet "
+                            "FROM notes "
+                            f"WHERE (lower(note_title) LIKE '%{safe.lower()}%' OR lower(note_content) LIKE '%{safe.lower()}%') "
+                            f"AND patient_id IN ({pid_list}) "
+                            "ORDER BY note_date DESC LIMIT 20;"
+                        )
+                    else:
+                        extra_queries.append(
+                            "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet "
+                            "FROM notes "
+                            f"WHERE lower(note_title) LIKE '%{safe.lower()}%' OR lower(note_content) LIKE '%{safe.lower()}%' "
+                            "ORDER BY note_date DESC LIMIT 20;"
+                        )
 
         run_queries = extra_queries + queries
         # Avoid producing too many tabs; cap execution to extras + max_queries
@@ -984,26 +1009,34 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
         return uniq[:8]
 
     # ---------------- SQL parameter helpers -----------------
-    def _get_current_patient_id(self):
+    def _get_current_patient_ids(self) -> list[int]:
+        """Return all patient IDs available in the patients table for this user DB."""
         try:
             with self.db_engine.connect() as conn:
-                r = conn.execute(text("SELECT id FROM patients LIMIT 1")).fetchone()
-                return int(r[0]) if r and r[0] is not None else None
+                rows = conn.execute(text("SELECT id FROM patients WHERE id IS NOT NULL")).fetchall()
+            ids = []
+            for r in (rows or []):
+                try:
+                    ids.append(int(r[0]))
+                except Exception:
+                    continue
+            # ensure unique and stable order
+            return sorted(set(ids))
         except Exception:
-            return None
+            return []
 
     def _inline_patient_id(self, sql: str) -> str:
-        """Replace patient_id parameter placeholders with the current patient id literal.
+        """Replace patient_id parameter placeholders with the current patient id(s) literal.
 
         - Only operates outside quotes
-        - Replaces patterns like: patient_id = ?  or patient_id = :patient_id
-        - Leaves SQL unchanged if no patient id available
+    - Replaces patterns like: patient_id = ?  or patient_id = :patient_id or patient_id = 123 with IN (...)
+        - Leaves SQL unchanged if no patient ids available
         - After replacement, if any remaining parameter markers (? or :name) exist, returns empty string to trigger retry
         """
         if not sql:
             return sql
-        pid = self._get_current_patient_id()
-        if pid is None:
+        pids = self._get_current_patient_ids()
+        if not pids:
             # If SQL contains parameter placeholders, reject to force retry without params
             if "?" in sql or re.search(r":[A-Za-z_][A-Za-z0-9_]*", sql):
                 return ""
@@ -1015,6 +1048,7 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
         n = len(sql)
         in_squote = False
         in_dquote = False
+        in_list = ", ".join(str(i) for i in pids)
         while i < n:
             ch = sql[i]
             if ch == "'" and not in_dquote:
@@ -1028,12 +1062,12 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
                 i += 1
                 continue
             if not in_squote and not in_dquote:
-                # Try regex from this position for alias?.patient_id = ? or :name
-                m = re.match(r"((?:[A-Za-z_][A-Za-z0-9_]*\.)?)patient_id\s*=\s*(\?|:[A-Za-z_][A-Za-z0-9_]*)", sql[i:])
+                # Try regex from this position for alias?.patient_id = (?|:name|123)
+                m = re.match(r"((?:[A-Za-z_][A-Za-z0-9_]*\.)?)patient_id\s*=\s*(\?|:[A-Za-z_][A-Za-z0-9_]*|\d+)", sql[i:])
                 if m:
                     # Preserve optional alias prefix
                     prefix = m.group(1) or ""
-                    repl = f"{prefix}patient_id = {pid}"
+                    repl = f"{prefix}patient_id IN ({in_list})"
                     out.append(repl)
                     i += m.end()
                     continue
@@ -1045,3 +1079,11 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
         if "?" in s2 or re.search(r":[A-Za-z_][A-Za-z0-9_]*", s2):
             return ""
         return s2
+
+    def _table_has_column(self, table: str, column: str) -> bool:
+        try:
+            insp = inspect(self.db_engine)
+            cols = [c.get('name') for c in (insp.get_columns(table) or [])]
+            return column in (cols or [])
+        except Exception:
+            return False
