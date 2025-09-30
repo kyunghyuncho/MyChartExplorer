@@ -8,6 +8,8 @@ from pathlib import Path
 from modules.paths import get_config_yaml_path
 from modules.invitations import validate_invitation, mark_invitation_used
 import time
+import os
+from modules.admin import list_users
 
 st.set_page_config(page_title="Register", layout="centered")
 st.title("Register a New User (Invitation Required)")
@@ -106,6 +108,69 @@ if st.session_state.get("authentication_status"):
     st.success("You're already logged in.")
     st.page_link("Home.py", label="Go to Home", icon="🏠")
 else:
+    # If no users exist, show a secure Admin Bootstrap form first
+    users_exist = len(list_users()) > 0
+    if not users_exist:
+        st.warning("Initial setup: create the first admin account.")
+        with st.form("bootstrap_admin_form"):
+            token_input = st.text_input("Bootstrap Token", type="password", help="Admin bootstrap token from environment variable or secrets.")
+            name = st.text_input("Full Name")
+            email = st.text_input("Email")
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            confirm = st.text_input("Confirm Password", type="password")
+            submit_bootstrap = st.form_submit_button("Create Admin Account")
+
+        if submit_bootstrap:
+            token_expected = None
+            try:
+                token_expected = st.secrets.get("ADMIN_BOOTSTRAP_TOKEN")  # type: ignore[attr-defined]
+            except Exception:
+                token_expected = None
+            if not token_expected:
+                token_expected = os.environ.get("ADMIN_BOOTSTRAP_TOKEN")
+
+            if not token_expected:
+                st.error("ADMIN_BOOTSTRAP_TOKEN is not set. Set it in environment or Streamlit secrets for secure bootstrap.")
+            elif token_input.strip() != str(token_expected).strip():
+                st.error("Invalid bootstrap token.")
+            elif not name or not email or not username or not password or not confirm:
+                st.error("All fields are required.")
+            elif password != confirm:
+                st.error("Passwords do not match.")
+            elif not re.match(r"^[A-Za-z0-9_\-\.]+$", username):
+                st.error("Username may contain letters, numbers, underscores, dashes, and dots only.")
+            else:
+                try:
+                    users = config.setdefault('credentials', {}).setdefault('usernames', {})
+                    if username in users:
+                        st.error("Username already exists. Please choose another.")
+                    else:
+                        hashed = _hash_password_compat(password)
+                        db_key = secrets.token_hex(32)
+                        users[username] = {
+                            'name': name,
+                            'email': email,
+                            'password': hashed,
+                            'superuser': True,
+                            'db_encryption_key': db_key,
+                        }
+                        with cfg_file.open('w', encoding='utf-8') as f:
+                            yaml.dump(config, f, default_flow_style=False)
+                        try:
+                            import os as _os
+                            _os.chmod(cfg_file, 0o600)
+                        except Exception:
+                            pass
+                        st.success('Admin account created. Redirecting to login…')
+                        time.sleep(2)
+                        st.switch_page("Home.py")
+                except Exception as e:
+                    st.error(str(e))
+
+        st.stop()
+
+    # Otherwise, normal invitation-only registration
     with st.form("register_form"):
         name = st.text_input("Full Name")
         email = st.text_input("Email")
@@ -113,6 +178,7 @@ else:
         password = st.text_input("Password", type="password")
         confirm = st.text_input("Confirm Password", type="password")
         code = st.text_input("Invitation Code")
+        st.caption("Don't have a code? Please reach out to Kyunghyun Cho to request an invitation.")
         submitted = st.form_submit_button("Register")
 
     if submitted:
