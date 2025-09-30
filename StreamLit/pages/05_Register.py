@@ -3,11 +3,14 @@ import yaml
 from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 import secrets
-from modules.paths import get_config_yaml_path
+import re
 from pathlib import Path
+from modules.paths import get_config_yaml_path
+from modules.invitations import validate_invitation, mark_invitation_used
+import time
 
 st.set_page_config(page_title="Register", layout="centered")
-st.title("Register a New User")
+st.title("Register a New User (Invitation Required)")
 
 # Load or create authenticator config
 cfg_path = get_config_yaml_path()
@@ -33,51 +36,131 @@ if not cfg_file.exists():
         pass
 
 with cfg_file.open() as file:
-    config = yaml.load(file, Loader=SafeLoader)
+    config = yaml.load(file, Loader=SafeLoader) or {}
 
 
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
+def _email_taken(email: str) -> bool:
+    users = ((config.get('credentials') or {}).get('usernames') or {})
+    e = (email or '').strip().lower()
+    for _, data in users.items():
+        if (data or {}).get('email', '').strip().lower() == e:
+            return True
+    return False
+
+
+def _hash_password_compat(password: str) -> str:
+    """Hash a password using streamlit_authenticator's Hasher, compatible across versions.
+
+    Tries multiple call patterns:
+    - Hasher([pwd]).generate()[0]
+    - Hasher().generate([pwd])[0]
+    - Hasher.hash([pwd]) or Hasher.hash(pwd)
+    - Hasher.hash_passwords([pwd])
+    - Hasher.encrypt([pwd]) / Hasher.encrypt_passwords([pwd])
+    """
+    H = getattr(stauth, "Hasher", None)
+    if H is None:
+        raise RuntimeError("streamlit_authenticator.Hasher not available")
+    # Instance with generate(list)
+    try:
+        obj = H([password])
+        gen = getattr(obj, "generate", None)
+        if callable(gen):
+            out = gen()
+            return out[0] if isinstance(out, (list, tuple)) else str(out)
+    except TypeError:
+        # Try no-arg constructor then generate(list)
+        try:
+            obj = H()
+            gen = getattr(obj, "generate", None)
+            if callable(gen):
+                out = gen([password])
+                return out[0] if isinstance(out, (list, tuple)) else str(out)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # Class/staticmethod fallbacks
+    for name in ("hash", "hash_passwords", "encrypt", "encrypt_passwords"):
+        m = getattr(H, name, None)
+        if callable(m):
+            try:
+                # Prefer list input when method name implies plural
+                if "passwords" in name:
+                    out = m([password])
+                else:
+                    try:
+                        out = m([password])
+                    except Exception:
+                        out = m(password)
+                return out[0] if isinstance(out, (list, tuple)) else str(out)
+            except Exception:
+                continue
+
+    raise RuntimeError("Unsupported streamlit_authenticator Hasher API: cannot hash password.")
+
 
 # Guard: if already logged in, inform and link home
 if st.session_state.get("authentication_status"):
     st.success("You're already logged in.")
     st.page_link("Home.py", label="Go to Home", icon="🏠")
 else:
-    try:
-        # register_user returns username on success.
-        result = authenticator.register_user()
-        # Handle both possible return types (string username or tuple)
-        username = None
-        if isinstance(result, str):
-            username = result
-        elif isinstance(result, (list, tuple)) and len(result) >= 2:
-            # Some versions returned (success_bool, username)
-            success, uname = result[0], result[1]
-            if success:
-                username = uname
+    with st.form("register_form"):
+        name = st.text_input("Full Name")
+        email = st.text_input("Email")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        confirm = st.text_input("Confirm Password", type="password")
+        code = st.text_input("Invitation Code")
+        submitted = st.form_submit_button("Register")
 
-        if username:
-            # Generate and persist a per-user DB encryption key
-            db_key = secrets.token_hex(32)
-            users = config.setdefault('credentials', {}).setdefault('usernames', {})
-            user_entry = users.setdefault(username, {})
-            user_entry['db_encryption_key'] = db_key
-            # Do not auto-promote the first user; superuser must be granted explicitly by an admin
-            with open(get_config_yaml_path(), 'w') as f:
-                yaml.dump(config, f, default_flow_style=False)
-            try:
-                import os as _os
-                _os.chmod(get_config_yaml_path(), 0o600)
-            except Exception:
-                pass
-            st.success('User registered successfully. Please log in from Home.')
-    except Exception as e:
-        st.error(e)
+    if submitted:
+        # Basic validation
+        if not name or not email or not username or not password or not confirm or not code:
+            st.error("All fields are required.")
+        elif password != confirm:
+            st.error("Passwords do not match.")
+        elif not re.match(r"^[A-Za-z0-9_\-\.]+$", username):
+            st.error("Username may contain letters, numbers, underscores, dashes, and dots only.")
+        elif _email_taken(email):
+            st.error("This email is already registered.")
+        else:
+            # Validate invitation
+            if not validate_invitation(email, code):
+                st.error("Invalid or expired invitation code for this email.")
+            else:
+                try:
+                    # Create user in config.yaml
+                    users = config.setdefault('credentials', {}).setdefault('usernames', {})
+                    if username in users:
+                        st.error("Username already exists. Please choose another.")
+                    else:
+                        # Hash password with compatibility across library versions
+                        hashed = _hash_password_compat(password)
+                        db_key = secrets.token_hex(32)
+                        users[username] = {
+                            'name': name,
+                            'email': email,
+                            'password': hashed,
+                            'superuser': False,
+                            'db_encryption_key': db_key,
+                        }
+                        with cfg_file.open('w', encoding='utf-8') as f:
+                            yaml.dump(config, f, default_flow_style=False)
+                        try:
+                            import os as _os
+                            _os.chmod(cfg_file, 0o600)
+                        except Exception:
+                            pass
+                        # Mark invitation as used
+                        mark_invitation_used(email, code)
+                        st.success('User registered successfully. Redirecting to login…')
+                        # Small delay then navigate to Home (login) page
+                        time.sleep(2)
+                        st.switch_page("Home.py")
+                except Exception as e:
+                    st.error(str(e))
 
 st.divider()
 st.page_link("Home.py", label="Back to Login", icon="🔐")

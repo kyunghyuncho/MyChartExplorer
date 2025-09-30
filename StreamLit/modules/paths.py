@@ -67,3 +67,11 @@ def get_user_config_json_path(username: str) -> str:
 
 def get_conversations_dir(username: str) -> str:
     return _ensure_dir(get_user_dir(username) / "conversations").as_posix()
+
+
+def get_invitations_json_path() -> str:
+    """Return the path to the invitations store JSON under the data root.
+
+    This file holds pending/used invitation codes for registration.
+    """
+    return (get_data_root() / "invitations.json").as_posix()

@@ -70,7 +70,46 @@ def reset_password(username: str) -> str:
     if username not in users:
         raise ValueError("User not found")
     temp_password = stauth.Hasher.generate_random_password(length=12)
-    hashed = stauth.Hasher([temp_password]).generate()[0]
+    # Hash compatibly across versions
+    H = stauth.Hasher
+    hashed = None
+    # Try instance with generate
+    try:
+        obj = H([temp_password])
+        gen = getattr(obj, "generate", None)
+        if callable(gen):
+            out = gen()
+            hashed = out[0] if isinstance(out, (list, tuple)) else str(out)
+    except TypeError:
+        try:
+            obj = H()
+            gen = getattr(obj, "generate", None)
+            if callable(gen):
+                out = gen([temp_password])
+                hashed = out[0] if isinstance(out, (list, tuple)) else str(out)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    # Class/staticmethod fallbacks
+    if not hashed:
+        for name in ("hash", "hash_passwords", "encrypt", "encrypt_passwords"):
+            m = getattr(H, name, None)
+            if callable(m):
+                try:
+                    if "passwords" in name:
+                        out = m([temp_password])
+                    else:
+                        try:
+                            out = m([temp_password])
+                        except Exception:
+                            out = m(temp_password)
+                    hashed = out[0] if isinstance(out, (list, tuple)) else str(out)
+                    break
+                except Exception:
+                    continue
+    if not hashed:
+        raise RuntimeError("Unsupported streamlit_authenticator Hasher API: cannot hash password.")
     users[username]["password"] = hashed
     _save_config(cfg)
     return temp_password
