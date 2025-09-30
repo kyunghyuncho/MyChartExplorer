@@ -12,6 +12,10 @@ from modules.admin import (
 from modules.config import (
     get_preview_limits_global,
     set_preview_limits_global,
+    get_notes_snippet_max_chars,
+    set_notes_snippet_max_chars,
+    get_notes_summarization_enabled,
+    set_notes_summarization_enabled,
 )
 from modules.invitations import (
     invite_user,
@@ -58,6 +62,29 @@ with tab_settings:
     if st.button("Save SendGrid Key"):
         set_sendgrid_api_key(sg)
         st.success("SendGrid API key saved.")
+
+    st.markdown("---")
+    st.subheader("Notes Preview & Summarization")
+    coln1, coln2 = st.columns([1, 1])
+    with coln1:
+        snip_max = st.number_input(
+            "Max characters for note text",
+            min_value=100,
+            max_value=100000,
+            value=int(get_notes_snippet_max_chars()),
+            step=100,
+            help="Controls how much note content is included per row in previews sent to the LLM.",
+        )
+    with coln2:
+        summarize = st.toggle(
+            "Summarize long notes",
+            value=bool(get_notes_summarization_enabled()),
+            help="When enabled, the app may summarize longer note excerpts to fit within preview budgets.",
+        )
+    if st.button("Save Notes Settings"):
+        set_notes_snippet_max_chars(int(snip_max))
+        set_notes_summarization_enabled(bool(summarize))
+        st.success("Notes settings saved.")
 
 with tab_users:
     st.subheader("Users")

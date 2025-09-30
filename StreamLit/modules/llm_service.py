@@ -8,7 +8,11 @@ import requests
 import json
 import re
 from sqlalchemy import text, inspect
-from .config import get_preview_limits_global
+from .config import (
+    get_preview_limits_global,
+    get_notes_snippet_max_chars,
+    get_notes_summarization_enabled,
+)
 from datetime import date, datetime
 
 class LLMService:
@@ -477,16 +481,24 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
         # Hybrid boost: add deterministic queries for clinical notes to increase recall
         extra_queries: list[str] = []
         if self._has_table("notes"):
+            # Determine desired snippet length from admin setting (bounded for SQL substr)
+            try:
+                snip_len = int(get_notes_snippet_max_chars())
+            except Exception:
+                snip_len = 600
+            sql_snip_len = max(200, min(2000, snip_len))
             # Always include a recent-notes overview
             if self._table_has_column("notes", "patient_id") and self._get_current_patient_ids():
                 pid_list = ", ".join(str(i) for i in self._get_current_patient_ids())
                 extra_queries.append(
-                    "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet FROM notes "
+                    "SELECT note_date, note_title, provider, substr(note_content, 1, "
+                    f"{sql_snip_len}) AS snippet FROM notes "
                     f"WHERE patient_id IN ({pid_list}) ORDER BY note_date DESC LIMIT 10;"
                 )
             else:
                 extra_queries.append(
-                    "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet FROM notes ORDER BY note_date DESC LIMIT 10;"
+                    "SELECT note_date, note_title, provider, substr(note_content, 1, "
+                    f"{sql_snip_len}) AS snippet FROM notes ORDER BY note_date DESC LIMIT 10;"
                 )
             # If the question appears to target narrative content, add simple keyword searches
             if self._is_notes_intent(question):
@@ -496,7 +508,8 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
                     if self._table_has_column("notes", "patient_id") and self._get_current_patient_ids():
                         pid_list = ", ".join(str(i) for i in self._get_current_patient_ids())
                         extra_queries.append(
-                            "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet "
+                            "SELECT note_date, note_title, provider, substr(note_content, 1, "
+                            f"{sql_snip_len}) AS snippet "
                             "FROM notes "
                             f"WHERE (lower(note_title) LIKE '%{safe.lower()}%' OR lower(note_content) LIKE '%{safe.lower()}%') "
                             f"AND patient_id IN ({pid_list}) "
@@ -504,7 +517,8 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
                         )
                     else:
                         extra_queries.append(
-                            "SELECT note_date, note_title, provider, substr(note_content, 1, 500) AS snippet "
+                            "SELECT note_date, note_title, provider, substr(note_content, 1, "
+                            f"{sql_snip_len}) AS snippet "
                             "FROM notes "
                             f"WHERE lower(note_title) LIKE '%{safe.lower()}%' OR lower(note_content) LIKE '%{safe.lower()}%' "
                             "ORDER BY note_date DESC LIMIT 20;"
@@ -743,8 +757,12 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
 
         # Choose a small, meaningful subset of columns for display
         preferred_cols = [
-            "id", date_col or "", "note_title", "title", "name", "test", "component",
-            "value", "result", "unit", "status", "provider", "code",
+            # Core identifiers and timing
+            "id", date_col or "",
+            # Notes-specific fields (ensure content gets included)
+            "note_title", "snippet", "note_content",
+            # Generic/common columns
+            "title", "name", "test", "component", "value", "result", "unit", "status", "provider", "code",
         ]
         preferred_cols = [c for c in preferred_cols if c and (not cols or c in cols)]
         if mapping_mode and not preferred_cols and cols:
@@ -764,9 +782,22 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
                         if v is None:
                             continue
                         sv = str(v)
-                        # truncate very long fields
-                        if len(sv) > 200:
-                            sv = sv[:197] + "..."
+                        # Truncate very long fields; allow larger budget for note content with admin setting
+                        max_len = 200
+                        if c in ("snippet", "note_content"):
+                            try:
+                                max_len = int(get_notes_snippet_max_chars())
+                            except Exception:
+                                max_len = 600
+                        if len(sv) > max_len:
+                            # Optional summarization for very long notes
+                            if c in ("snippet", "note_content") and get_notes_summarization_enabled():
+                                try:
+                                    sv = self._summarize_text_safe(sv, target_chars=max_len)
+                                except Exception:
+                                    sv = sv[: max_len - 3] + "..."
+                            else:
+                                sv = sv[: max_len - 3] + "..."
                         parts.append(f"{c}={sv}")
                     if not parts:
                         # fallback to full mapping limited
@@ -812,6 +843,35 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
         else:
             # Raise an error if the provider is not supported
             raise ValueError("Unsupported LLM provider")
+
+    def _summarize_text_safe(self, text: str, target_chars: int = 600) -> str:
+        """Summarize arbitrary text to approximately target_chars using the configured provider.
+
+        Best-effort; falls back to naive truncation on error.
+        """
+        text = str(text or "")
+        if len(text) <= max(100, target_chars):
+            return text
+        cfg = self._load_config()
+        prompt = (
+            "Summarize the following clinical note content succinctly in plain text, preserving key clinical facts and chronology. "
+            f"Limit to about {target_chars} characters.\n\n" + text
+        )
+        try:
+            if cfg["llm_provider"] == "ollama":
+                out = self._query_ollama(prompt, cfg)
+            elif cfg["llm_provider"] == "gemini":
+                out = self._query_gemini(prompt, cfg, response_mime_type="text/plain", temperature=0.2)
+            else:
+                out = ""
+        except Exception:
+            out = ""
+        out = (out or "").strip()
+        if not out:
+            return text[: max(100, target_chars) - 3] + "..."
+        if len(out) > target_chars + 100:
+            out = out[: target_chars - 3] + "..."
+        return out
 
     def _query_ollama(self, prompt, cfg=None):
         """

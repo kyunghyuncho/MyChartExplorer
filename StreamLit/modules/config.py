@@ -208,3 +208,43 @@ def set_preview_limits_global(max_rows_per_set: int, char_budget_per_set: int, m
     data["preview_char_budget_per_set"] = _clamp(char_budget_per_set, 500, 20000)
     data["preview_max_sets"] = _clamp(max_sets, 1, 16)
     _write_json(global_path, data)
+
+
+# -------- Notes preview/summarization settings (admin-only) --------
+def get_notes_snippet_max_chars() -> int:
+    """Return the max characters to include for note content/snippets in previews.
+
+    Default: 2000
+    """
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    try:
+        v = int((data or {}).get("notes_snippet_max_chars", 2000))
+        return max(100, min(100000, v))
+    except Exception:
+        return 2000
+
+
+def set_notes_snippet_max_chars(n: int) -> None:
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    try:
+        n = int(n)
+    except Exception:
+        n = 2000
+    data["notes_snippet_max_chars"] = max(100, min(100000, n))
+    _write_json(global_path, data)
+
+
+def get_notes_summarization_enabled() -> bool:
+    """Return whether to summarize long notes in previews (admin toggle)."""
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    return bool((data or {}).get("notes_summarization_enabled", False))
+
+
+def set_notes_summarization_enabled(enabled: bool) -> None:
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    data["notes_summarization_enabled"] = bool(enabled)
+    _write_json(global_path, data)
