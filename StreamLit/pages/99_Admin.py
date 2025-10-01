@@ -3,11 +3,13 @@ import streamlit as st
 from modules.auth import check_auth
 from modules.admin import (
     list_users,
+    search_users,
     is_superuser,
     set_superuser,
     reset_password,
     export_user_zip,
     delete_user_data,
+    delete_user_account,
 )
 from modules.config import (
     get_preview_limits_global,
@@ -88,7 +90,12 @@ with tab_settings:
 
 with tab_users:
     st.subheader("Users")
-    rows = list_users()
+    # Confirmation state for destructive actions
+    st.session_state.setdefault("confirm_delete_user", None)
+    st.session_state.setdefault("confirm_delete_scope", None)  # 'account' | 'data'
+    # Search controls
+    search_q = st.text_input("Search by username, name, or email", placeholder="Type to filter users…")
+    rows = search_users(search_q) if search_q else list_users()
     if not rows:
         st.info("No users found.")
     else:
@@ -146,15 +153,58 @@ with tab_users:
                             st.error(str(e))
                 with col5:
                     danger = st.checkbox("I understand delete is permanent", key=f"danger-{uname}")
-                    if st.button("Delete User Data", key=f"delete-{uname}"):
-                        if danger:
-                            try:
-                                delete_user_data(uname)
-                                st.warning("User data deleted.")
-                            except Exception as e:
-                                st.error(str(e))
-                        else:
-                            st.error("Please confirm the checkbox before deleting.")
+                    st.caption("Choose what to delete:")
+                    col_del1, col_del2 = st.columns(2)
+                    with col_del1:
+                        if st.button("Delete Data Only", key=f"delete-data-{uname}"):
+                            if danger:
+                                try:
+                                    delete_user_data(uname)
+                                    st.warning("User data deleted (account retained).")
+                                except Exception as e:
+                                    st.error(str(e))
+                            else:
+                                st.error("Please confirm the checkbox before deleting.")
+                    with col_del2:
+                        if st.button("Delete Account", key=f"delete-acct-{uname}"):
+                            if danger:
+                                # Stage confirmation dialog for this user
+                                st.session_state["confirm_delete_user"] = uname
+                                st.session_state["confirm_delete_scope"] = "account"
+                            else:
+                                st.error("Please confirm the checkbox before deleting.")
+
+                    # Second confirmation dialog (inline) for account deletion
+                    if (
+                        st.session_state.get("confirm_delete_user") == uname
+                        and st.session_state.get("confirm_delete_scope") == "account"
+                    ):
+                        with st.container(border=True):
+                            st.error("This will permanently delete the user's account and all associated data.")
+                            confirm_text = st.text_input(
+                                "Type the username to confirm deletion",
+                                key=f"confirm-text-{uname}",
+                                placeholder=uname,
+                            )
+                            cc1, cc2 = st.columns(2)
+                            with cc1:
+                                if st.button("Confirm Delete Account", key=f"confirm-delete-{uname}"):
+                                    if confirm_text.strip() == uname:
+                                        try:
+                                            delete_user_account(uname)
+                                            st.success("User account deleted.")
+                                            st.session_state["confirm_delete_user"] = None
+                                            st.session_state["confirm_delete_scope"] = None
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(str(e))
+                                    else:
+                                        st.error("Username does not match. Please type the exact username.")
+                            with cc2:
+                                if st.button("Cancel", key=f"cancel-delete-{uname}"):
+                                    st.session_state["confirm_delete_user"] = None
+                                    st.session_state["confirm_delete_scope"] = None
+                                    st.rerun()
 
 with tab_invites:
     st.subheader("Invite a new user")

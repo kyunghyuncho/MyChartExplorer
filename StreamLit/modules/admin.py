@@ -45,6 +45,24 @@ def list_users() -> List[Tuple[str, Dict[str, Any]]]:
     return sorted(users.items(), key=lambda x: x[0].lower())
 
 
+def search_users(query: str) -> List[Tuple[str, Dict[str, Any]]]:
+    """Case-insensitive search across username, email, and name.
+
+    Returns list[(username, user_dict)] matching the query.
+    """
+    q = (query or "").strip().lower()
+    if not q:
+        return list_users()
+    results: List[Tuple[str, Dict[str, Any]]] = []
+    for uname, data in list_users():
+        d = data or {}
+        email = str(d.get("email", "")).lower()
+        name = str(d.get("name", "")).lower()
+        if q in uname.lower() or q in email or q in name:
+            results.append((uname, d))
+    return results
+
+
 def is_superuser(username: str) -> bool:
     for uname, data in list_users():
         if uname == username:
@@ -58,6 +76,23 @@ def set_superuser(username: str, value: bool) -> None:
     user = users.setdefault(username, {})
     user["superuser"] = bool(value)
     _save_config(cfg)
+
+
+def delete_user_account(username: str) -> None:
+    """Delete a user account entirely: remove from config and delete user data folder.
+
+    This action is destructive and cannot be undone.
+    """
+    cfg = _load_config()
+    users = cfg.setdefault("credentials", {}).setdefault("usernames", {})
+    if username in users:
+        users.pop(username, None)
+        _save_config(cfg)
+    # Remove on-disk data (DB, conversations, attachments)
+    try:
+        delete_user_data(username)
+    except Exception:
+        pass
 
 
 def reset_password(username: str) -> str:
