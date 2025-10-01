@@ -5,6 +5,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import re
+import time
 st.set_page_config(page_title="MyChart Explorer", layout="wide")
 from modules.database import get_session, get_db_engine
 from modules.llm_service import LLMService
@@ -46,6 +47,11 @@ else:
     st.session_state.setdefault('rows_history', [])  # list[list[row]]
     # Persist successful SQL statements to allow reconstruction when loading a saved conversation
     st.session_state.setdefault('sql_history', [])  # list[str]
+    # Retrieval progress messages for the current question
+    st.session_state.setdefault('progress_msgs', [])
+    # Per-turn retrieval token guard
+    st.session_state.setdefault('retrieval_token', 0)
+    st.session_state.setdefault('retrieval_processed_token', 0)
     # UI: whether to scroll to the last assistant message on rerun
     st.session_state.setdefault('scroll_to_last_assistant', False)
 
@@ -205,47 +211,7 @@ else:
                     else:
                         st.error("You must be logged in to delete conversations.")
 
-    # Defer retrieval to the next rerun so the just-typed user message is visible immediately
-    if (st.session_state.get('should_start_retrieval') and
-        st.session_state.get('pending_question') and
-        not st.session_state.get('retrieval_in_progress')):
-        st.session_state['retrieval_in_progress'] = True
-        st.session_state['should_start_retrieval'] = False
-        try:
-            with st.spinner("Retrieving data…"):
-                batch = llm_service.retrieve_batch(st.session_state['pending_question'], max_queries=4, max_retries=1)
-                st.session_state['last_batch'] = batch
-                first_ok = next((r for r in batch if r.get('rows')), None) if batch else None
-                st.session_state['last_sql'] = first_ok.get('sql') if first_ok else None
-                st.session_state['last_rows'] = first_ok.get('rows') if first_ok else None
-                st.session_state['consult_ready'] = True
-                # Append all successful rows from this turn to the cumulative rows_history
-                try:
-                    for item in (batch or []):
-                        rows = item.get('rows') or []
-                        if rows:
-                            st.session_state['rows_history'].append(rows)
-                            # Track successful SQL for persistence
-                            sql = item.get('sql')
-                            if sql:
-                                st.session_state['sql_history'].append(sql)
-                except Exception:
-                    pass
-                # If auto-consult is enabled, immediately run consultation and append answer
-                if st.session_state.get('auto_consult', True) and st.session_state.get('pending_question'):
-                    try:
-                        rows_history = st.session_state.get('rows_history') or []
-                        answer = llm_service.consult_conversation(st.session_state['chat_history'], rows_history)
-                        st.session_state['chat_history'].append({"role": "assistant", "content": answer})
-                        st.session_state['scroll_to_last_assistant'] = True
-                        st.session_state['pending_question'] = None
-                        st.session_state['consult_ready'] = False
-                    except Exception as e:
-                        st.error(f"An error occurred during consultation: {e}")
-        except Exception as e:
-            st.error(f"An error occurred while retrieving data: {e}")
-        finally:
-            st.session_state['retrieval_in_progress'] = False
+    # Note: Retrieval is now executed inline under the last user message in the Conversation tab
 
     # Two-tab layout: Conversation and Retrieved Data
     tab_conv, tab_data = st.tabs(["Conversation", "Retrieved Data"])
@@ -254,7 +220,17 @@ else:
         st.subheader("Conversation")
         # Render history with anchor ids for assistant messages
         last_assistant_anchor = None
-        for i, msg in enumerate(st.session_state['chat_history']):
+        chat_hist = st.session_state['chat_history']
+        # Determine the latest user message index (to attach progress under it)
+        last_user_idx = None
+        for _i in range(len(chat_hist) - 1, -1, -1):
+            if chat_hist[_i].get('role') == 'user':
+                last_user_idx = _i
+                break
+
+        prog = st.session_state.get('progress_msgs') or []
+
+        for i, msg in enumerate(chat_hist):
             role = msg.get('role', 'user')
             # Inject a small anchor before assistant messages to allow scrolling
             if role == 'assistant':
@@ -264,6 +240,89 @@ else:
                 last_assistant_anchor = anchor_id
             with st.chat_message(role):
                 st.markdown(msg.get('content', ''))
+                # If this is the most recent user message, show the current progress right after it
+                if last_user_idx is not None and i == last_user_idx:
+                    # Create a live placeholder for progress messages directly under the user message
+                    progress_box = st.empty()
+
+                    def _esc_html2(s: str) -> str:
+                        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+                    def _render_progress_list(items_list: list[str]):
+                        if not items_list:
+                            progress_box.empty()
+                            return
+                        items_html = "".join(f"<li><span style='color:#6b7280;'>{_esc_html2(m)}</span></li>" for m in items_list)
+                        progress_box.markdown(
+                            f"<ul style='margin:0.25rem 0 0.5rem 1.25rem;padding:0;'>{items_html}</ul>",
+                            unsafe_allow_html=True,
+                        )
+                        # Brief sleep to allow Streamlit UI to paint incrementally
+                        time.sleep(0.03)
+
+                    # If a retrieval is queued, run it now and stream progress in real time
+                    if (st.session_state.get('should_start_retrieval') and
+                        st.session_state.get('pending_question') and
+                        not st.session_state.get('retrieval_in_progress') and
+                        int(st.session_state.get('retrieval_token', 0)) != int(st.session_state.get('retrieval_processed_token', 0))):
+                        st.session_state['retrieval_in_progress'] = True
+                        st.session_state['should_start_retrieval'] = False
+                        # Consume token to avoid duplicate runs for this turn
+                        try:
+                            st.session_state['retrieval_processed_token'] = int(st.session_state.get('retrieval_token', 0))
+                        except Exception:
+                            st.session_state['retrieval_processed_token'] = st.session_state.get('retrieval_token')
+                        # Reset progress for this turn
+                        st.session_state['progress_msgs'] = []
+
+                        def _progress(msg: str):
+                            st.session_state['progress_msgs'].append(str(msg))
+                            _render_progress_list(st.session_state['progress_msgs'])
+
+                        try:
+                            _progress("Starting retrieval…")
+                            batch = llm_service.retrieve_batch(
+                                st.session_state['pending_question'],
+                                max_queries=4,
+                                max_retries=1,
+                                progress_cb=_progress,
+                                chat_history=st.session_state.get('chat_history')
+                            )
+                            st.session_state['last_batch'] = batch
+                            first_ok = next((r for r in batch if r.get('rows')), None) if batch else None
+                            st.session_state['last_sql'] = first_ok.get('sql') if first_ok else None
+                            st.session_state['last_rows'] = first_ok.get('rows') if first_ok else None
+                            st.session_state['consult_ready'] = True
+                            # Append successful rows and SQL to histories
+                            try:
+                                for item2 in (batch or []):
+                                    rows2 = item2.get('rows') or []
+                                    if rows2:
+                                        st.session_state['rows_history'].append(rows2)
+                                        sql2 = item2.get('sql')
+                                        if sql2:
+                                            st.session_state['sql_history'].append(sql2)
+                            except Exception:
+                                pass
+                            # Optionally consult immediately
+                            if st.session_state.get('auto_consult', True) and st.session_state.get('pending_question'):
+                                try:
+                                    rows_history = st.session_state.get('rows_history') or []
+                                    answer = llm_service.consult_conversation(st.session_state['chat_history'], rows_history)
+                                    st.session_state['chat_history'].append({"role": "assistant", "content": answer})
+                                    st.session_state['scroll_to_last_assistant'] = True
+                                    st.session_state['pending_question'] = None
+                                    st.session_state['consult_ready'] = False
+                                except Exception as e:
+                                    st.error(f"An error occurred during consultation: {e}")
+                        except Exception as e:
+                            st.error(f"An error occurred while retrieving data: {e}")
+                        finally:
+                            st.session_state['retrieval_in_progress'] = False
+
+                    # Always render any existing progress list (will be updated live during retrieval)
+                    prog = st.session_state.get('progress_msgs') or []
+                    _render_progress_list(prog)
 
         # If requested, scroll to the last assistant anchor after render
         if st.session_state.get('scroll_to_last_assistant') and last_assistant_anchor:
@@ -290,6 +349,11 @@ else:
             st.session_state['consult_ready'] = False
             st.session_state['chat_history'].append({"role": "user", "content": user_input})
             st.session_state['should_start_retrieval'] = True
+            # Increment per-turn token to signal new retrieval
+            try:
+                st.session_state['retrieval_token'] = int(st.session_state.get('retrieval_token', 0)) + 1
+            except Exception:
+                st.session_state['retrieval_token'] = 1
             st.rerun()
 
         # Controls
@@ -349,12 +413,17 @@ else:
             for idx, item in enumerate(batch):
                 rows = item.get('rows', [])
                 error = item.get('error')
-                table_name = "Data"
-                if item.get('sql'):
-                    match = re.search(r"FROM\s+(\w+)", item['sql'], re.IGNORECASE)
-                    if match:
-                        table_name = match.group(1).capitalize()
-                label = f"{table_name} (Error)" if error else f"{table_name} ({len(rows)})"
+                # Prefer a human-friendly description of the SQL
+                sql = item.get('sql') or ""
+                try:
+                    desc = llm_service.describe_sql(sql).strip()
+                except Exception:
+                    desc = "Retrieved data"
+                base = desc if desc else "Retrieved data"
+                label = f"{base} (Error)" if error else f"{base} ({len(rows)})"
+                # Keep labels reasonably short for tabs
+                if len(label) > 70:
+                    label = label[:67] + "…"
                 tab_labels.append(label)
 
             tabs = st.tabs(tab_labels)

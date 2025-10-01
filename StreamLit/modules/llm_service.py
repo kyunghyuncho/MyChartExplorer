@@ -8,6 +8,7 @@ import requests
 import json
 import re
 from sqlalchemy import text, inspect
+from typing import Callable
 from .config import (
     get_preview_limits_global,
     get_notes_snippet_max_chars,
@@ -248,7 +249,7 @@ class LLMService:
         cleaned = validate_readonly_and_balance(s)
         return cleaned
 
-    def _generate_sql(self, question):
+    def _generate_sql(self, question, history_text: str | None = None):
         """
         Generates an SQL query from a natural language question.
         """
@@ -262,10 +263,11 @@ class LLMService:
             pid_hint = f"Use patient_id IN ({pid_list}) where relevant."
         else:
             pid_hint = "Filter correctly by patient when needed."
+        convo_block = f"\nConversation so far (summarized):\n{history_text}\n\n" if history_text else "\n"
         prompt = f"""
         Given the following database schema:
         {schema}
-
+        {convo_block}
         Generate a SQL query to answer the following question: "{question}"
         
     Output a single plain SQL statement only.
@@ -305,7 +307,7 @@ class LLMService:
             # Raise an error if the provider is not supported
             raise ValueError("Unsupported LLM provider")
 
-    def _generate_sql_batch(self, question: str, max_queries: int = 4) -> str:
+    def _generate_sql_batch(self, question: str, max_queries: int = 4, history_text: str | None = None) -> str:
         """Ask the LLM for multiple small, focused SQL queries as a JSON array of strings."""
         schema = self._get_db_schema()
         pids = self._get_current_patient_ids()
@@ -314,9 +316,11 @@ class LLMService:
             pid_hint = f"Use patient_id IN ({pid_list}) where relevant."
         else:
             pid_hint = "Filter correctly by patient when needed."
+        convo_block = f"\nConversation so far (summarized):\n{history_text}\n\n" if history_text else "\n"
         prompt = f"""
 Given the following database schema:
 {schema}
+{convo_block}
 
 Produce up to {max_queries} small, distinct SQLite read-only SQL queries (strings) that together help answer:
 "{question}"
@@ -354,12 +358,14 @@ Retrieval-only rules (strict):
             raise ValueError("Unsupported LLM provider")
 
     # Public pipeline helpers for the UI
-    def generate_sql(self, question: str) -> str:
-        raw_sql = self._generate_sql(question)
+    def generate_sql(self, question: str, chat_history: list[dict] | None = None) -> str:
+        hist = self._summarize_conversation_for_sql(chat_history) if chat_history else None
+        raw_sql = self._generate_sql(question, history_text=hist)
         return self._sanitize_sql(raw_sql)
 
-    def generate_sql_batch(self, question: str, max_queries: int = 4) -> list[str]:
-        raw = self._generate_sql_batch(question, max_queries=max_queries)
+    def generate_sql_batch(self, question: str, max_queries: int = 4, chat_history: list[dict] | None = None) -> list[str]:
+        hist = self._summarize_conversation_for_sql(chat_history) if chat_history else None
+        raw = self._generate_sql_batch(question, max_queries=max_queries, history_text=hist)
         items: list[str] = []
         # First try JSON parsing
         try:
@@ -390,12 +396,13 @@ Retrieval-only rules (strict):
         with self.db_engine.connect() as connection:
             return connection.execute(text(sql_query)).fetchall()
 
-    def retrieve(self, question: str, max_retries: int = 1):
+    def retrieve(self, question: str, max_retries: int = 1, chat_history: list[dict] | None = None):
         """Generate SQL for the question, sanitize/validate, execute, and retry once if it fails.
 
         Returns a tuple (sql, rows). Raises on final failure.
         """
-        raw_sql = self._generate_sql(question)
+        hist = self._summarize_conversation_for_sql(chat_history) if chat_history else None
+        raw_sql = self._generate_sql(question, history_text=hist)
         sql_query = self._sanitize_sql(raw_sql)
         sql_query = self._inline_patient_id(sql_query)
         if not sql_query:
@@ -471,12 +478,24 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
             rows2 = self.execute_sql(sql2)
             return sql2, rows2
 
-    def retrieve_batch(self, question: str, max_queries: int = 4, max_retries: int = 1):
+    def retrieve_batch(self, question: str, max_queries: int = 4, max_retries: int = 1,
+                       progress_cb: Callable[[str], None] | None = None,
+                       chat_history: list[dict] | None = None):
         """Best-effort retrieval of multiple small queries.
 
         Returns a list of dicts: [{"sql": str, "rows": list, "error": Optional[str]}]
         """
-        queries = self.generate_sql_batch(question, max_queries=max_queries)
+        if progress_cb:
+            try:
+                progress_cb("Generating SQL candidates…")
+            except Exception:
+                pass
+        queries = self.generate_sql_batch(question, max_queries=max_queries, chat_history=chat_history)
+        if progress_cb:
+            try:
+                progress_cb(f"Generated {len(queries)} candidate queries.")
+            except Exception:
+                pass
 
         # Hybrid boost: add deterministic queries for clinical notes to increase recall
         extra_queries: list[str] = []
@@ -533,11 +552,47 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
             if idx >= max_to_run:
                 break
             try:
+                # Compute a short table label for this query (best-effort)
+                tbl = self._first_table_label(q)
+                short_desc = self._short_sql_desc(q)
+                if progress_cb:
+                    try:
+                        label = f"Executing query {idx + 1}/{max_to_run}"
+                        if short_desc:
+                            label += f" — {short_desc}"
+                        elif tbl:
+                            label += f" ({tbl})"
+                        label += "…"
+                        progress_cb(label)
+                    except Exception:
+                        pass
                 rows = self.execute_sql(q)
                 results.append({"sql": q, "rows": rows, "error": None})
+                if progress_cb:
+                    try:
+                        label = f"✓ Query {idx + 1}"
+                        if short_desc:
+                            label += f" — {short_desc}"
+                        elif tbl:
+                            label += f" ({tbl})"
+                        label += f": {len(rows)} row(s)"
+                        progress_cb(label)
+                    except Exception:
+                        pass
             except Exception as e:
                 if max_retries > 0:
                     # try one correction for this query
+                    if progress_cb:
+                        try:
+                            label = f"Retrying query {idx + 1}"
+                            if short_desc:
+                                label += f" — {short_desc}"
+                            elif tbl:
+                                label += f" ({tbl})"
+                            label += f" after error: {str(e)[:120]}"
+                            progress_cb(label)
+                        except Exception:
+                            pass
                     retry_prompt = f"""
 Your previous SQL had an error when executed on SQLite.
 Question: {question}
@@ -547,7 +602,7 @@ Previous SQL:
 
 Using the schema below, produce a corrected single SELECT/WITH statement for SQLite.
 It must be valid SQL, no markdown, no comments, no code fences. Do NOT use parameters (? or :name); inline literal values only.
-{('Use patient_id = ' + str(self._get_current_patient_id()) + ' where relevant.') if self._get_current_patient_id() is not None else ''}
+{('Use patient_id IN (' + ', '.join(str(i) for i in self._get_current_patient_ids()) + ') where relevant.') if self._get_current_patient_ids() else ''}
 {self._get_db_schema()}
                     """
                     cfg = self._load_config()
@@ -571,12 +626,48 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
                         try:
                             rows2 = self.execute_sql(sql2)
                             results.append({"sql": sql2, "rows": rows2, "error": None})
+                            # Update table label/desc from corrected SQL if available
+                            tbl2 = self._first_table_label(sql2) or tbl
+                            short_desc2 = self._short_sql_desc(sql2) or short_desc
+                            if progress_cb:
+                                try:
+                                    label = f"✓ Query {idx + 1}"
+                                    if short_desc2:
+                                        label += f" — {short_desc2}"
+                                    elif tbl2:
+                                        label += f" ({tbl2})"
+                                    label += f" retry: {len(rows2)} row(s)"
+                                    progress_cb(label)
+                                except Exception:
+                                    pass
                             continue
                         except Exception as e2:
                             results.append({"sql": sql2, "rows": [], "error": str(e2)})
+                            if progress_cb:
+                                try:
+                                    label = f"✗ Query {idx + 1}"
+                                    if short_desc:
+                                        label += f" — {short_desc}"
+                                    elif tbl:
+                                        label += f" ({tbl})"
+                                    label += f" retry failed: {str(e2)[:120]}"
+                                    progress_cb(label)
+                                except Exception:
+                                    pass
                             continue
                 # if no retry or still failing
                 results.append({"sql": q, "rows": [], "error": str(e)})
+                if progress_cb:
+                    try:
+                        label = f"✗ Query {idx + 1}"
+                        if short_desc:
+                            label += f" — {short_desc}"
+                        elif tbl:
+                            label += f" ({tbl})"
+                        label += f" failed: {str(e)[:120]}"
+                        progress_cb(label)
+                    except Exception:
+                        pass
         return results
 
     def consult(self, question: str, rows) -> str:
@@ -1147,3 +1238,184 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
             return column in (cols or [])
         except Exception:
             return False
+
+    def _first_table_label(self, sql: str) -> str | None:
+        """Best-effort extraction of the first table name after FROM for labeling purposes."""
+        try:
+            if not sql:
+                return None
+            m = re.search(r"\bfrom\s+([A-Za-z_][A-Za-z0-9_]*)", sql, flags=re.IGNORECASE)
+            if not m:
+                return None
+            return m.group(1).strip().capitalize()
+        except Exception:
+            return None
+
+    def _short_sql_desc(self, sql: str, limit: int = 80) -> str | None:
+        """Create a compact human-readable description for progress lines.
+
+        Prefers "Table: columns" from the SQL description; truncates to limit.
+        """
+        try:
+            if not sql:
+                return None
+            tbl = self._first_table_label(sql)
+            d = self._describe_sql(sql) or ""
+            cols = None
+            m = re.search(r"showing\s+([^;\.]+)", d, flags=re.IGNORECASE)
+            if m:
+                cols = m.group(1).strip()
+            if cols:
+                core = f"{tbl}: {cols}" if tbl else cols
+            else:
+                core = d
+            core = (core or "").strip().rstrip(".")
+            if not core:
+                core = tbl or ""
+            if not core:
+                return None
+            if len(core) > limit:
+                return core[: limit - 1] + "…"
+            return core
+        except Exception:
+            return None
+
+    # ---------------- Conversation summarization for SQL generation -----------------
+    def _summarize_conversation_for_sql(self, chat_history: list[dict] | None,
+                                        max_messages: int = 12,
+                                        max_chars: int = 1500) -> str | None:
+        """Summarize recent conversation turns to ground SQL generation on context.
+
+        - Uses last max_messages turns
+        - Truncates to max_chars for prompt efficiency
+        - Formats as simple User:/Assistant: lines
+        """
+        if not chat_history:
+            return None
+        tail = (chat_history or [])[-max_messages:]
+        lines: list[str] = []
+        for m in tail:
+            role = m.get("role", "user")
+            role_label = "User" if role == "user" else "Assistant"
+            content = str(m.get("content", "")).strip()
+            if not content:
+                continue
+            lines.append(f"{role_label}: {content}")
+        if not lines:
+            return None
+        s = "\n".join(lines)
+        if len(s) > max_chars:
+            s = s[-max_chars:]
+        return s
+
+    # ---------------- SQL description helper -----------------
+    def _describe_sql(self, sql: str) -> str:
+        """Heuristically describe a SELECT/WITH SQLite query in plain language.
+
+        Keeps it short: tables involved, key filters, sorting, grouping, and row limit.
+        Safe and deterministic (no LLM call).
+        """
+        if not sql:
+            return ""
+        s = (sql or "").strip()
+        low = s.lower()
+
+        def _slice(after: str, until: list[str]) -> str:
+            try:
+                i = low.index(after)
+            except ValueError:
+                return ""
+            j = len(s)
+            for u in until:
+                try:
+                    k = low.index(u, i + len(after))
+                    j = min(j, k)
+                except ValueError:
+                    pass
+            return s[i + len(after):j].strip()
+
+        # Extract core clauses
+        sel = _slice("select", [" from ", ";"]).strip()
+        frm = _slice(" from ", [" where ", " group by ", " order by ", " limit ", ";"]).strip()
+        whr = _slice(" where ", [" group by ", " order by ", " limit ", ";"]).strip()
+        grp = _slice(" group by ", [" order by ", " limit ", ";"]).strip()
+        ordby = _slice(" order by ", [" limit ", ";"]).strip()
+        lim = _slice(" limit ", [";"]).strip()
+
+        # Tables (split on joins/commas)
+        tables: list[str] = []
+        if frm:
+            # Remove join conditions
+            core = re.split(r"\bjoin\b|\bon\b", frm, flags=re.IGNORECASE)[0]
+            # Split by commas or whitespace chains
+            parts = re.split(r"\s*,\s*|\s+", core)
+            # Filter plausible identifiers
+            for p in parts:
+                p = p.strip()
+                if not p:
+                    continue
+                # Skip aliases keywords
+                if p.lower() in {"as"}:
+                    continue
+                # remove alias after a table name e.g., notes n
+                tables.append(p)
+            # post-process: collapse alias sequences like ['notes','n'] -> ['notes']
+            if len(tables) >= 2 and len(tables[0]) and len(tables[1]) == 1:
+                tables = [tables[0]]
+
+        # Columns list (approximate)
+        cols_desc = "all columns"
+        if sel:
+            if "*" in sel:
+                cols_desc = "all columns"
+            else:
+                cols = [c.strip() for c in sel.split(",") if c.strip()]
+                # Remove function wrappers for brevity
+                clean_cols = []
+                for c in cols[:6]:
+                    c2 = re.sub(r"\b(count|avg|sum|min|max)\s*\((.*?)\)", r"\1(\2)", c, flags=re.IGNORECASE)
+                    clean_cols.append(c2)
+                cols_desc = ", ".join(clean_cols)
+                if len(cols) > 6:
+                    cols_desc += ", …"
+
+        desc_parts: list[str] = []
+        if tables:
+            desc_parts.append(f"Rows from {', '.join(tables)}")
+        else:
+            desc_parts.append("Rows from the database")
+
+        if cols_desc:
+            desc_parts.append(f"showing {cols_desc}")
+
+        if whr:
+            w = re.sub(r"\s+", " ", whr)
+            if len(w) > 220:
+                w = w[:220] + "…"
+            desc_parts.append(f"filtered by: {w}")
+
+        if grp:
+            g = re.sub(r"\s+", " ", grp)
+            desc_parts.append(f"grouped by {g}")
+
+        if ordby:
+            o = re.sub(r"\s+", " ", ordby)
+            desc_parts.append(f"sorted by {o}")
+
+        if lim:
+            n = re.findall(r"\d+", lim)
+            if n:
+                desc_parts.append(f"up to {n[0]} row(s)")
+
+        # Aggregation hint
+        if re.search(r"\b(count|avg|sum|min|max)\s*\(", sel, flags=re.IGNORECASE):
+            desc_parts.append("includes aggregated metrics")
+
+        return "; ".join(desc_parts) + "."
+
+    def describe_sql(self, sql: str) -> str:
+        """Public helper to describe a SQL query succinctly."""
+        try:
+            return self._describe_sql(sql)
+        except Exception:
+            return "Retrieves relevant rows from the database."
