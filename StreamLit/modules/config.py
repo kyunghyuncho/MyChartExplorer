@@ -50,6 +50,16 @@ def _default_config() -> dict:
     "ssh_passphrase": "",
         "remote_ollama_url": "http://localhost:11434",
     "local_tunnel_port": 11435,
+    # SMART on FHIR settings (per-user)
+    "fhir_auth_url": "",
+    "fhir_token_url": "",
+    "fhir_base_url": "",
+    "fhir_client_id": "",
+    "fhir_redirect_uri": "",
+    # Space-separated scopes per SMART spec
+    "fhir_scopes": "launch/patient patient/*.read offline_access openid profile",
+    # Last sync timestamp (ISO 8601) stored per-user
+    "last_fhir_sync": "",
     }
 
 
