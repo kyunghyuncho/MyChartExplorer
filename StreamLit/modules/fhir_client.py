@@ -28,6 +28,7 @@ class OAuthTokens:
     expires_at: float  # epoch seconds when access token expires
     token_type: str = "Bearer"
     scope: Optional[str] = None
+    patient_id: Optional[str] = None
 
 
 def _b64url(data: bytes) -> str:
@@ -41,7 +42,16 @@ def generate_pkce() -> Tuple[str, str]:
     return verifier, challenge
 
 
-def build_authorize_url(auth_url: str, client_id: str, redirect_uri: str, scope: str, code_challenge: str, state: str) -> str:
+def build_authorize_url(
+    auth_url: str,
+    client_id: str,
+    redirect_uri: str,
+    scope: str,
+    code_challenge: str,
+    state: str,
+    aud: Optional[str] = None,
+    response_mode: str = "query",
+) -> str:
     from urllib.parse import urlencode
     q = {
         "response_type": "code",
@@ -53,6 +63,10 @@ def build_authorize_url(auth_url: str, client_id: str, redirect_uri: str, scope:
         "state": state,
         # SMART extras (optional): aud (FHIR base)
     }
+    if aud:
+        q["aud"] = aud
+    if response_mode:
+        q["response_mode"] = response_mode
     return f"{auth_url}?{urlencode(q)}"
 
 
@@ -65,7 +79,15 @@ def exchange_token(token_url: str, code: str, client_id: str, redirect_uri: str,
         "code_verifier": code_verifier,
     }
     resp = requests.post(token_url, data=data, headers={"Accept": "application/json"}, timeout=30)
-    resp.raise_for_status()
+    if not resp.ok:
+        # Surface Epic error details for easier debugging
+        try:
+            j = resp.json()
+            err = j.get("error")
+            desc = j.get("error_description") or j.get("message")
+            raise requests.HTTPError(f"{resp.status_code} {resp.reason}: {err or 'error'} - {desc or resp.text}")
+        except ValueError:
+            resp.raise_for_status()
     t = resp.json()
     expires_in = int(t.get("expires_in", 3600))
     return OAuthTokens(
@@ -74,6 +96,7 @@ def exchange_token(token_url: str, code: str, client_id: str, redirect_uri: str,
         expires_at=time.time() + max(60, expires_in - 30),
         token_type=t.get("token_type", "Bearer"),
         scope=t.get("scope"),
+        patient_id=t.get("patient"),
     )
 
 
@@ -84,7 +107,14 @@ def refresh_token(token_url: str, refresh_token: str, client_id: str) -> OAuthTo
         "client_id": client_id,
     }
     resp = requests.post(token_url, data=data, headers={"Accept": "application/json"}, timeout=30)
-    resp.raise_for_status()
+    if not resp.ok:
+        try:
+            j = resp.json()
+            err = j.get("error")
+            desc = j.get("error_description") or j.get("message")
+            raise requests.HTTPError(f"{resp.status_code} {resp.reason}: {err or 'error'} - {desc or resp.text}")
+        except ValueError:
+            resp.raise_for_status()
     t = resp.json()
     expires_in = int(t.get("expires_in", 3600))
     return OAuthTokens(
@@ -146,7 +176,139 @@ def fetch_document_references(base_url: str, tokens: OAuthTokens, patient_id: Op
 
 
 def fetch_binary(base_url: str, tokens: OAuthTokens, binary_id: str) -> bytes:
-    url = f"{base_url.rstrip('/')}/Binary/{binary_id}"
-    resp = requests.get(url, headers=_auth_header(tokens), timeout=60)
+    """Fetch raw content for a Binary resource.
+
+    Tries standard Binary/{id}, and on 403/404 falls back to Binary/{id}/$binary.
+    Uses Accept: */* to prefer raw content over JSON.
+    """
+    base = base_url.rstrip('/')
+    url = f"{base}/Binary/{binary_id}"
+    headers_raw = {"Authorization": f"{tokens.token_type} {tokens.access_token}", "Accept": "*/*"}
+    resp = requests.get(url, headers=headers_raw, timeout=60)
+    print(f'Fetching Binary resource from URL: {url}')
+    print(f'Response status code: {resp.status_code}')
+    if resp.status_code in (403, 404):
+        alt = f"{url}/$binary"
+        resp2 = requests.get(alt, headers=headers_raw, timeout=60)
+        resp2.raise_for_status()
+        return resp2.content
     resp.raise_for_status()
+    # Some servers return JSON Binary instead of raw bytes when Accept is */*
+    ctype = resp.headers.get("Content-Type", "")
+    print(f'Fetched Binary/{binary_id}, contentType={ctype}')
+    if "json" in ctype.lower() or (resp.content[:1] in b"[{"):
+        try:
+            jb = resp.json()
+            # FHIR Binary resource with base64-encoded 'data'
+            data_b64 = jb.get("data")
+            if isinstance(data_b64, str):
+                import base64
+                return base64.b64decode(data_b64)
+            # No inline data found; try $binary endpoint as a fallback
+            alt = f"{url}/$binary"
+            resp2 = requests.get(alt, headers=headers_raw, timeout=60)
+            resp2.raise_for_status()
+            return resp2.content
+        except ValueError:
+            # Not valid JSON; fall through to raw bytes
+            pass
     return resp.content
+
+
+def discover_smart_configuration(base_url: str) -> Dict[str, Any]:
+    """Fetch the SMART on FHIR discovery document for the given FHIR base.
+
+    Returns the JSON dict from {base}/.well-known/smart-configuration.
+    Raises requests.HTTPError on HTTP errors and ValueError if payload is not JSON.
+    """
+    url = f"{base_url.rstrip('/')}/.well-known/smart-configuration"
+    resp = requests.get(url, headers={"Accept": "application/json"}, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    if not isinstance(data, dict):
+        raise ValueError("SMART configuration response is not a JSON object")
+    return data
+
+# --- Additional resource fetchers for broader ingestion ---
+
+def fetch_patient(base_url: str, tokens: OAuthTokens, patient_id: str) -> Dict[str, Any]:
+    url = f"{base_url.rstrip('/')}/Patient/{patient_id}"
+    return get_json(url, tokens)
+
+
+def fetch_allergy_intolerances(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {}
+    if patient_id:
+        params["patient"] = patient_id
+    if since:
+        params["_lastUpdated"] = f"ge{since}"
+    return paged_get(base_url, "AllergyIntolerance", tokens, params=params)
+
+
+def fetch_conditions(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {}
+    if patient_id:
+        params["patient"] = patient_id
+    if since:
+        params["_lastUpdated"] = f"ge{since}"
+    return paged_get(base_url, "Condition", tokens, params=params)
+
+
+def fetch_medication_statements(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {}
+    if patient_id:
+        params["patient"] = patient_id
+    if since:
+        params["_lastUpdated"] = f"ge{since}"
+    return paged_get(base_url, "MedicationStatement", tokens, params=params)
+
+
+def fetch_medication_requests(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {}
+    if patient_id:
+        params["patient"] = patient_id
+    if since:
+        params["_lastUpdated"] = f"ge{since}"
+    return paged_get(base_url, "MedicationRequest", tokens, params=params)
+
+
+def fetch_immunizations(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {}
+    if patient_id:
+        params["patient"] = patient_id
+    if since:
+        params["_lastUpdated"] = f"ge{since}"
+    return paged_get(base_url, "Immunization", tokens, params=params)
+
+
+def fetch_observations(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, category: Optional[str] = None, codes: Optional[List[str]] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {}
+    if patient_id:
+        params["patient"] = patient_id
+    if category:
+        params["category"] = category
+    if codes:
+        params["code"] = ",".join(codes)
+    if since:
+        params["_lastUpdated"] = f"ge{since}"
+    return paged_get(base_url, "Observation", tokens, params=params)
+
+
+def fetch_procedures(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {}
+    if patient_id:
+        params["patient"] = patient_id
+    if since:
+        params["_lastUpdated"] = f"ge{since}"
+    return paged_get(base_url, "Procedure", tokens, params=params)
+
+
+def fetch_diagnostic_reports(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, category: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {}
+    if patient_id:
+        params["patient"] = patient_id
+    if category:
+        params["category"] = category
+    if since:
+        params["_lastUpdated"] = f"ge{since}"
+    return paged_get(base_url, "DiagnosticReport", tokens, params=params)

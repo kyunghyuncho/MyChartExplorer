@@ -63,7 +63,18 @@ def check_auth():
     A simple function to call at the top of each authenticated page.
     Redirects to Home.py if not logged in.
     """
-    if 'authentication_status' not in st.session_state or st.session_state['authentication_status'] is not True:
-        st.warning("You must be logged in to access this page. Redirecting to login...")
-        st.switch_page("Home.py")
+    if st.session_state.get('authentication_status') is True:
+        return
+    # Attempt silent cookie-based reauthentication before redirecting
+    try:
+        authenticator = get_authenticator()
+        # Trigger cookie check; if a valid cookie exists, this will set session state to authenticated
+        # Render in sidebar to avoid disrupting main content; if no cookie, it may show a login form
+        authenticator.login(location='sidebar')
+    except Exception:
+        pass
+    if st.session_state.get('authentication_status') is True:
+        return
+    st.warning("You must be logged in to access this page. Redirecting to login…")
+    st.switch_page("Home.py")
 

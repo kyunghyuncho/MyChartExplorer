@@ -21,6 +21,22 @@ st.set_page_config(
 st.title("MyChart Explorer")
 st.caption("Explore and consult on your own MyChart-exported health records.")
 
+# Capture SMART OAuth callback parameters if present
+try:
+    params = st.query_params  # type: ignore[attr-defined]
+    if isinstance(params, dict):
+        raw_code = params.get('code')
+        raw_state = params.get('state')
+        code_val = raw_code[0] if isinstance(raw_code, list) else raw_code
+        state_val = raw_state[0] if isinstance(raw_state, list) else raw_state
+        if isinstance(code_val, str) and code_val:
+            st.session_state['pending_fhir_code'] = code_val
+            if isinstance(state_val, str) and state_val:
+                st.session_state['pending_fhir_state'] = state_val
+            st.info("Received an authorization code from FHIR login. Continue on the Data Importer → SMART tab to exchange it.")
+except Exception:
+    pass
+
 # --- Authentication ---
 authenticator = get_authenticator()
 
