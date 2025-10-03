@@ -12,11 +12,9 @@ st.markdown(
     - MyChart Explorer is provided by **KC Explorer LLC** (sole member: **Kyunghyun Cho**).
 
     ## Licensing
-    This repository uses different licenses for different parts:
-    - `StreamLit/` (Streamlit application): **PolyForm Noncommercial 1.0.0** — see `StreamLit/LICENSE`.
-    - Everything else (e.g., `PythonVersion/`, `GeminiMyChartExplorer/`): **MIT** — see the root `LICENSE`.
+    - **PolyForm Noncommercial 1.0.0**
 
-    Noncommercial use of the Streamlit application is permitted under the PolyForm Noncommercial terms. **Commercial use requires a separate agreement with KC Explorer LLC.**
+    Noncommercial use of the MyChartExplorer App is permitted under the PolyForm Noncommercial terms. **Commercial use requires a separate agreement with KC Explorer LLC.**
 
     ## Experimental Platform; No Medical Advice
     - This is an experimental platform and **not a medical device**.
@@ -39,10 +37,9 @@ st.markdown(
     """
 )
 
-# Additional detailed terms
 st.markdown(
     """
-    ## Detailed Terms (Summary)
+    ## Detailed Terms and Conditions
 
     1) Purpose — MyChart Explorer helps you view and understand your own health records. It is read-only and does not change your medical chart.
 
