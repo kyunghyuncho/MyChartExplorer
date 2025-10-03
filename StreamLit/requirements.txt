@@ -7,10 +7,9 @@ sshtunnel
 beautifulsoup4
 lxml
 requests
+pdfminer.six
 streamlit-authenticator
 pyyaml
 pysqlcipher3
 cryptography
-cryptography
-cryptography
-cryptography
+requests

@@ -50,6 +50,16 @@ def _default_config() -> dict:
     "ssh_passphrase": "",
         "remote_ollama_url": "http://localhost:11434",
     "local_tunnel_port": 11435,
+    # SMART on FHIR settings (per-user)
+    "fhir_auth_url": "",
+    "fhir_token_url": "",
+    "fhir_base_url": "",
+    "fhir_client_id": "",
+    "fhir_redirect_uri": "",
+    # Space-separated scopes per SMART spec
+    "fhir_scopes": "launch/patient patient/*.read offline_access openid profile",
+    # Last sync timestamp (ISO 8601) stored per-user
+    "last_fhir_sync": "",
     }
 
 
@@ -247,4 +257,97 @@ def set_notes_summarization_enabled(enabled: bool) -> None:
     global_path = get_global_config_json_path()
     data = _read_json(global_path)
     data["notes_summarization_enabled"] = bool(enabled)
+    _write_json(global_path, data)
+
+
+# -------- SMART on FHIR admin settings (admin-only) --------
+def get_fhir_admin_settings() -> dict:
+    """Return admin-controlled SMART settings: client_id, redirect_uri, scopes.
+
+    Values are read from the global config file (not per-user). If unset, returns empty strings.
+    """
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    return {
+        "client_id": (data or {}).get("fhir_client_id", ""),
+        "redirect_uri": (data or {}).get("fhir_redirect_uri", ""),
+        "scopes": (data or {}).get("fhir_scopes", "launch/patient patient/*.read offline_access openid profile"),
+    }
+
+
+def set_fhir_admin_settings(client_id: str | None = None, redirect_uri: str | None = None, scopes: str | None = None) -> None:
+    """Persist SMART admin settings into the global config (admin-only)."""
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    if client_id is not None:
+        data["fhir_client_id"] = client_id
+    if redirect_uri is not None:
+        data["fhir_redirect_uri"] = redirect_uri
+    if scopes is not None:
+        data["fhir_scopes"] = scopes
+    _write_json(global_path, data)
+
+
+# -------- Authorized FHIR sites (admin-only) --------
+def get_authorized_fhir_sites() -> list[dict]:
+    """Return list of authorized FHIR sites from the global config.
+
+    Each item is a dict: { "name": str, "base_url": str }
+    """
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    items = (data or {}).get("authorized_fhir_sites", [])
+    if isinstance(items, list):
+        # Normalize structure
+        out = []
+        for it in items:
+            if isinstance(it, dict):
+                name = (it.get("name") or "").strip() or "Healthcare Organization"
+                base = (it.get("base_url") or "").strip()
+                if base:
+                    out.append({"name": name, "base_url": base})
+        return out
+    return []
+
+
+def add_authorized_fhir_site(name: str, base_url: str) -> None:
+    """Add or update an authorized FHIR site (admin-only)."""
+    name = (name or "").strip() or "Healthcare Organization"
+    base_url = (base_url or "").strip()
+    if not base_url:
+        return
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    items = (data or {}).get("authorized_fhir_sites", [])
+    # Deduplicate by normalized base_url
+    norm = base_url.rstrip("/")
+    new_items = []
+    found = False
+    for it in (items or []):
+        if isinstance(it, dict) and (it.get("base_url") or "").rstrip("/") == norm:
+            if not found:
+                new_items.append({"name": name, "base_url": base_url})
+                found = True
+        else:
+            new_items.append(it)
+    if not found:
+        new_items.append({"name": name, "base_url": base_url})
+    data["authorized_fhir_sites"] = new_items
+    _write_json(global_path, data)
+
+
+def remove_authorized_fhir_site(base_url: str) -> None:
+    """Remove an authorized FHIR site by base_url (admin-only)."""
+    base_url = (base_url or "").strip()
+    if not base_url:
+        return
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    items = (data or {}).get("authorized_fhir_sites", [])
+    norm = base_url.rstrip("/")
+    new_items = []
+    for it in (items or []):
+        if not (isinstance(it, dict) and (it.get("base_url") or "").rstrip("/") == norm):
+            new_items.append(it)
+    data["authorized_fhir_sites"] = new_items
     _write_json(global_path, data)
