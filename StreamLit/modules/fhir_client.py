@@ -132,7 +132,23 @@ def _auth_header(tokens: OAuthTokens) -> Dict[str, str]:
 
 def get_json(url: str, tokens: OAuthTokens, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     resp = requests.get(url, headers=_auth_header(tokens), params=params or {}, timeout=30)
-    resp.raise_for_status()
+    if not resp.ok:
+        # Try to surface FHIR OperationOutcome or JSON error details
+        try:
+            data = resp.json()
+            msg = None
+            if isinstance(data, dict):
+                # OperationOutcome per FHIR
+                if data.get("resourceType") == "OperationOutcome":
+                    issues = data.get("issue") or []
+                    if issues:
+                        diag = issues[0].get("diagnostics") or issues[0].get("details", {}).get("text")
+                        msg = f"OperationOutcome: {diag}"
+                # Generic error fields
+                msg = msg or data.get("error_description") or data.get("message") or str(data)
+            raise requests.HTTPError(f"{resp.status_code} {resp.reason} - {msg}")
+        except ValueError:
+            resp.raise_for_status()
     return resp.json()
 
 
@@ -260,7 +276,15 @@ def fetch_medication_statements(base_url: str, tokens: OAuthTokens, patient_id: 
         params["patient"] = patient_id
     if since:
         params["_lastUpdated"] = f"ge{since}"
-    return paged_get(base_url, "MedicationStatement", tokens, params=params)
+    # Some servers (including Epic Public R4) may not implement MedicationStatement search and return 404
+    try:
+        return paged_get(base_url, "MedicationStatement", tokens, params=params)
+    except requests.HTTPError as e:
+        status = getattr(getattr(e, 'response', None), 'status_code', None)
+        if status == 404:
+            # Treat as not supported; caller can rely on MedicationRequest instead
+            return []
+        raise
 
 
 def fetch_medication_requests(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -269,7 +293,13 @@ def fetch_medication_requests(base_url: str, tokens: OAuthTokens, patient_id: Op
         params["patient"] = patient_id
     if since:
         params["_lastUpdated"] = f"ge{since}"
-    return paged_get(base_url, "MedicationRequest", tokens, params=params)
+    try:
+        return paged_get(base_url, "MedicationRequest", tokens, params=params)
+    except requests.HTTPError as e:
+        status = getattr(getattr(e, 'response', None), 'status_code', None)
+        if status == 404:
+            return []
+        raise
 
 
 def fetch_immunizations(base_url: str, tokens: OAuthTokens, patient_id: Optional[str] = None, since: Optional[str] = None) -> List[Dict[str, Any]]:
