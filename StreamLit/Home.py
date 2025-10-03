@@ -123,12 +123,12 @@ if st.session_state.get("authentication_status"):
 
     st.divider()
     st.page_link("pages/00_About.py", label="About", icon="ℹ️")
-    st.page_link("pages/11_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
+    st.page_link("pages/06_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
     
     # Sidebar quick links (kept minimal)
     st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
     st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
-    st.sidebar.page_link("pages/11_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
+    st.sidebar.page_link("pages/06_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
     st.sidebar.markdown("[License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
 
 # User is not logged in
