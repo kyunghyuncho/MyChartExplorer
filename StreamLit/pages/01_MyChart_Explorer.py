@@ -239,6 +239,19 @@ else:
                 st.markdown(f'<a id="{anchor_id}"></a>', unsafe_allow_html=True)
                 last_assistant_anchor = anchor_id
             with st.chat_message(role):
+                # Prepend a small, styled disclaimer for assistant responses
+                if role == 'assistant':
+                    st.markdown(
+                        (
+                            "<div style=\"font-size:0.85rem; line-height:1.25rem; color:#7c2d12; "
+                            "background:#fff7ed; border:1px solid #fdba74; padding:8px 10px; "
+                            "border-radius:8px; margin:0 0 6px 0;\">"
+                            "<strong>Not medical advice:</strong> The assistant's response is for informational purposes only. "
+                            "Always consult a qualified clinician for medical advice."
+                            "</div>"
+                        ),
+                        unsafe_allow_html=True,
+                    )
                 st.markdown(msg.get('content', ''))
                 # If this is the most recent user message, show the current progress right after it
                 if last_user_idx is not None and i == last_user_idx:
