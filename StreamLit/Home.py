@@ -130,8 +130,7 @@ if st.session_state.get("authentication_status"):
     st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
     st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
     st.sidebar.page_link("pages/06_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
-    st.sidebar.markdown("[License (PolyForm Noncommercial)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/StreamLit/LICENSE)")
-    st.sidebar.markdown("[Other Parts License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
+    st.sidebar.markdown("[License](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/StreamLit/LICENSE)")
     render_footer()
 
 # User is not logged in
@@ -154,7 +153,6 @@ else:
     st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
     st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
     st.sidebar.page_link("pages/06_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
-    st.sidebar.markdown("[License (PolyForm Noncommercial)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/StreamLit/LICENSE)")
-    st.sidebar.markdown("[Other Parts License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
+    st.sidebar.markdown("[License](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/StreamLit/LICENSE)")
 
     render_footer()
