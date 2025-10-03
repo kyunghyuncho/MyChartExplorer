@@ -104,41 +104,101 @@ def fetch_vendor_directory_csv(url: str, vendor_hint: str = "") -> List[Dict[str
 # --- Epic Open Endpoints (JSON) ---
 
 def fetch_epic_open_endpoints_json(url: str = "https://open.epic.com/Endpoints/R4") -> List[Dict[str, str]]:
-    resp = requests.get(url, headers={"Accept": "application/json"}, timeout=30)
+    """Fetch Epic Open Endpoints and normalize quickly.
+
+    Returns a list of dicts with fields: name, vendor (Epic), base_url.
+    auth_url and token_url are intentionally left blank to be discovered lazily
+    after the user selects a site (to keep loading fast).
+    """
+    # Accept JSON but tolerate HTML; we'll parse accordingly without heavy lookups
+    resp = requests.get(url, headers={"Accept": "application/json, text/html;q=0.8"}, timeout=30)
     resp.raise_for_status()
-    entries = resp.json()["entry"]
+
     results: List[Dict[str, str]] = []
 
-    for ent in entries:
-        resource = ent.get("resource") or {}
-        if not isinstance(resource, dict):
-            continue
-        name = resource.get("name") or ""
-        base_url = resource.get("address") or None
+    def add_result(name: str, base: str) -> None:
+        base = (base or "").strip()
+        if not base:
+            return
+        # Deduplicate by base_url
+        for r in results:
+            if r.get("base_url") == base:
+                return
+        # If name is empty, use hostname as a friendly label
+        label = name or re.sub(r"^https?://", "", base).split("/")[0]
+        results.append({
+            "name": label,
+            "vendor": "Epic",
+            "base_url": base,
+            "auth_url": "",
+            "token_url": "",
+        })
 
-        # auth_url and token_url are retrieved from base_url/+".well-known/smart-configuration"
-        # first read the xml file from base_url+".well-known/smart-configuration"
-        xml_url = (base_url or "").rstrip("/") + "/.well-known/smart-configuration"
-        try:
-            xml_resp = requests.get(xml_url, headers={"Accept": "application/xml"}, timeout=15)
-            xml_resp.raise_for_status()
-            xml_text = xml_resp.text
-            # Extract authorization_endpoint and token_endpoint from the XML content using regex
-            auth_match = re.search(r'<authorization_endpoint>(.*?)</authorization_endpoint>', xml_text)
-            token_match = re.search(r'<token_endpoint>(.*?)</token_endpoint>', xml_text)
-            auth_url = auth_match.group(1) if auth_match else ""
-            token_url = token_match.group(1) if token_match else ""
-        except Exception:
-            token_url = None
-            auth_url = None
+    # Try JSON first
+    parsed = None
+    try:
+        parsed = resp.json()
+    except Exception:
+        parsed = None
 
-        if base_url and auth_url and token_url:
-            results.append({
-                "name": name,
-                "vendor": "Epic",
-                "base_url": base_url,
-                "auth_url": auth_url,
-                "token_url": token_url,
-            })
+    if parsed is not None:
+        # Many public directories return either a list or a dict with a list under common keys
+        items = None
+        if isinstance(parsed, list):
+            items = parsed
+        elif isinstance(parsed, dict):
+            for k in [
+                "endpoints", "Endpoints", "data", "resources", "organizations", "Organizations", "entry", "Entry"
+            ]:
+                if isinstance(parsed.get(k), list):
+                    items = parsed[k]
+                    break
+            # FHIR Bundle style: { entry: [ { resource: {...} } ] }
+            if items is None and isinstance(parsed.get("entry"), list):
+                items = parsed.get("entry")
+        if isinstance(items, list):
+            for it in items:
+                # Support both plain dict entries and FHIR Bundle entries with {resource:{}}
+                row = it
+                if isinstance(it, dict) and "resource" in it and isinstance(it["resource"], dict):
+                    row = it["resource"]
+                if not isinstance(row, dict):
+                    continue
+                # Try a variety of plausible keys
+                name = None
+                for key in ["OrganizationName", "DisplayName", "Name", "Organization", "name"]:
+                    if isinstance(row.get(key), str) and row.get(key).strip():
+                        name = row.get(key).strip()
+                        break
+                base = None
+                for key in [
+                    "FHIRPatientFacingURI", "FHIRBaseURL", "FHIRBaseUrl", "BaseURL", "BaseUrl", "URL", "Url", "address"
+                ]:
+                    if isinstance(row.get(key), str) and row.get(key).strip():
+                        base = row.get(key).strip()
+                        break
+                # Sometimes base is nested
+                if base is None and isinstance(row.get("endpoint"), dict):
+                    maybe = row["endpoint"].get("url") or row["endpoint"].get("href")
+                    if isinstance(maybe, str):
+                        base = maybe
+                if base:
+                    add_result(name or "", base)
+
+    # Fallback: scrape from HTML/text via regex if JSON route yielded nothing
+    if not results:
+        text = resp.text
+        # Look for common Epic FHIR base URL patterns
+        patterns = [
+            r"https?://[^\s'\"]+/interconnect-fhir-oauth/api/FHIR/R4",
+            r"https?://[^\s'\"]+/api/FHIR/R4",
+            r"https?://[^\s'\"]+/FHIR/R4",
+        ]
+        found: set[str] = set()
+        for pat in patterns:
+            for m in re.findall(pat, text):
+                found.add(m.rstrip("/"))
+        for base in sorted(found):
+            add_result("", base)
 
     return results

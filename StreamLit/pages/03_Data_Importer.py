@@ -261,7 +261,82 @@ with tab_fhir:
     readonly_redirect = bool(admin_redirect)
     readonly_scopes = bool(admin_scopes)
 
-    # Editable settings (persist per-user config)
+    # Epic Open Endpoints directory (JSON) search and select — placed at top for natural flow
+    st.markdown("### Epic endpoints (from open.epic.com)")
+    epic_q = st.text_input("Search organization or URL", key="epic_json_query", value="")
+    # Auto-load list if not already loaded
+    if not st.session_state.get('epic_json_all'):
+        try:
+            with st.spinner("Loading Epic endpoints…"):
+                from modules.hospital_directory import fetch_epic_open_endpoints_json
+                items_all = fetch_epic_open_endpoints_json("https://open.epic.com/Endpoints/R4")
+                # Inject Epic Public R4 Sandbox as a curated option if not present
+                epic_public = {
+                    "name": "Epic Public R4 Sandbox",
+                    "vendor": "Epic",
+                    "base_url": "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4",
+                    "auth_url": "",
+                    "token_url": "",
+                }
+                if all((it.get('base_url') or '').rstrip('/') != epic_public['base_url'] for it in (items_all or [])):
+                    items_all = (items_all or []) + [epic_public]
+                st.session_state['epic_json_all'] = items_all or []
+        except Exception as e:
+            st.warning(f"Could not auto-load Epic endpoints: {e}")
+    items_cached = st.session_state.get('epic_json_all') or []
+    # Filter in-memory for responsiveness
+    if items_cached:
+        q = (epic_q or "").strip().lower()
+        items = [it for it in items_cached if (q in (it.get('name','').lower()) or q in (it.get('base_url','').lower()))] if q else items_cached
+        labels = [f"{it.get('name','?')} — {it.get('base_url','')}" for it in items[:500]]
+        sel = st.selectbox("Select a site", options=["—"] + labels, index=0, key="sel_epic_json")
+        if sel and sel != "—":
+            idx = labels.index(sel)
+            ent = items[idx]
+            selected_base = ent.get('base_url','').strip()
+            # Only apply and rerun if selection changed
+            previously_applied = st.session_state.get('epic_applied_base', '')
+            if selected_base and selected_base != previously_applied:
+                st.session_state['fhir_base_url'] = selected_base
+                # If JSON provided auth/token URLs, use them; else try SMART discovery lazily
+                auth_url = ent.get('auth_url') or ''
+                token_url = ent.get('token_url') or ''
+                if auth_url:
+                    st.session_state['fhir_auth_url'] = auth_url
+                if token_url:
+                    st.session_state['fhir_token_url'] = token_url
+                if not auth_url or not token_url:
+                    try:
+                        with st.spinner("Discovering OAuth endpoints from SMART config…"):
+                            cfg = discover_smart_configuration(st.session_state['fhir_base_url'])
+                            st.session_state['fhir_auth_url'] = cfg.get('authorization_endpoint', st.session_state.get('fhir_auth_url', ''))
+                            st.session_state['fhir_token_url'] = cfg.get('token_endpoint', st.session_state.get('fhir_token_url', ''))
+                        st.info("Filled missing OAuth URLs via SMART discovery.")
+                    except Exception as e:
+                        st.warning(f"SMART discovery failed for this site: {e}")
+                # Persist and mark applied, then rerun to refresh inputs immediately
+                save_configuration({
+                    "fhir_base_url": st.session_state['fhir_base_url'],
+                    "fhir_auth_url": st.session_state.get('fhir_auth_url',''),
+                    "fhir_token_url": st.session_state.get('fhir_token_url',''),
+                })
+                st.session_state['epic_applied_base'] = selected_base
+                try:
+                    st.rerun()
+                except Exception:
+                    try:
+                        st.experimental_rerun()  # Streamlit <1.25
+                    except Exception:
+                        pass
+        # Show current URLs in small text right under the list
+        if st.session_state.get('fhir_base_url'):
+            st.caption(f"FHIR Base: {st.session_state.get('fhir_base_url')}")
+        if st.session_state.get('fhir_auth_url'):
+            st.caption(f"Auth URL: {st.session_state.get('fhir_auth_url')}")
+        if st.session_state.get('fhir_token_url'):
+            st.caption(f"Token URL: {st.session_state.get('fhir_token_url')}")
+
+    # Editable settings (auto-saved on list selection; manual save button removed per request)
     col1, col2 = st.columns(2)
     with col1:
         st.session_state['fhir_auth_url'] = st.text_input("Authorization URL", value=st.session_state.get('fhir_auth_url', ''))
@@ -299,98 +374,13 @@ with tab_fhir:
             disabled=readonly_scopes,
             help="Admin-controlled" if readonly_scopes else None,
         )
-    if st.button("Save FHIR Settings", key="save_fhir_settings"):
-        # Persist per-user only for fields not controlled by admin
-        to_save = {
-            "fhir_auth_url": st.session_state['fhir_auth_url'],
-            "fhir_token_url": st.session_state['fhir_token_url'],
-            "fhir_base_url": st.session_state['fhir_base_url'],
-        }
-        if not readonly_client:
-            to_save["fhir_client_id"] = st.session_state['fhir_client_id']
-        if not readonly_redirect:
-            to_save["fhir_redirect_uri"] = st.session_state['fhir_redirect_uri']
-        if not readonly_scopes:
-            to_save["fhir_scopes"] = st.session_state['fhir_scopes']
-        save_configuration(to_save)
-        st.toast("Saved FHIR settings", icon="✅")
+    # Removed explicit "Save FHIR Settings" button — selection auto-saves
 
-    # Quick preset for Epic Public R4 sandbox
-    if st.button("Use Epic Public R4 Defaults", key="apply_epic_defaults"):
-        st.session_state['fhir_base_url'] = "https://fhir.epic.com/interconnect-fhir-oauth/api/FHIR/R4"
-        try:
-            cfg = discover_smart_configuration(st.session_state['fhir_base_url'])
-            st.session_state['fhir_auth_url'] = cfg.get('authorization_endpoint', st.session_state.get('fhir_auth_url', ''))
-            st.session_state['fhir_token_url'] = cfg.get('token_endpoint', st.session_state.get('fhir_token_url', ''))
-            st.success("Applied Epic Public R4 endpoints via SMART discovery.")
-        except Exception as e:
-            st.error(f"Discovery failed: {e}")
+    # Removed Epic defaults button — Epic Public R4 appears as an item in the list above
 
-    # Epic Open Endpoints directory (JSON) search and select
-    with st.expander("Browse Epic endpoints (from open.epic.com)", expanded=False):
-        epic_q = st.text_input("Search organization or URL", key="epic_json_query", value="")
-        colEJ1, colEJ2 = st.columns([1, 3])
-        with colEJ1:
-            if st.button("Load Epic list", key="btn_load_epic_json"):
-                try:
-                    # Fetch and store results in session for browsing without re-fetching
-                    from modules.hospital_directory import fetch_epic_open_endpoints_json
-                    items_all = fetch_epic_open_endpoints_json("https://open.epic.com/Endpoints/R4")
-                    st.session_state['epic_json_all'] = items_all
-                    st.success(f"Loaded {len(items_all)} endpoints.")
-                except Exception as e:
-                    st.error(f"Failed to load Epic endpoints: {e}")
-        items_cached = st.session_state.get('epic_json_all') or []
-        # Filter in-memory for responsiveness
-        if items_cached:
-            q = (epic_q or "").strip().lower()
-            items = [it for it in items_cached if (q in (it.get('name','').lower()) or q in (it.get('base_url','').lower()))] if q else items_cached
-            labels = [f"{it.get('name','?')} — {it.get('base_url','')}" for it in items[:500]]
-            sel = st.selectbox("Select a site", options=["—"] + labels, index=0, key="sel_epic_json")
-            if sel and sel != "—":
-                idx = labels.index(sel)
-                ent = items[idx]
-                st.session_state['fhir_base_url'] = ent.get('base_url','')
-                # If JSON provided auth/token URLs, use them; else try SMART discovery
-                auth_url = ent.get('auth_url') or ''
-                token_url = ent.get('token_url') or ''
-                if auth_url:
-                    st.session_state['fhir_auth_url'] = auth_url
-                if token_url:
-                    st.session_state['fhir_token_url'] = token_url
-                if not auth_url or not token_url:
-                    try:
-                        cfg = discover_smart_configuration(st.session_state['fhir_base_url'])
-                        st.session_state['fhir_auth_url'] = cfg.get('authorization_endpoint', st.session_state.get('fhir_auth_url', ''))
-                        st.session_state['fhir_token_url'] = cfg.get('token_endpoint', st.session_state.get('fhir_token_url', ''))
-                        st.info("Filled missing OAuth URLs via SMART discovery.")
-                    except Exception as e:
-                        st.warning(f"SMART discovery failed for this site: {e}")
-                save_configuration({
-                    "fhir_base_url": st.session_state['fhir_base_url'],
-                    "fhir_auth_url": st.session_state.get('fhir_auth_url',''),
-                    "fhir_token_url": st.session_state.get('fhir_token_url',''),
-                })
+    # (List moved above; old expander removed)
 
-    # Discovery from FHIR base
-    if st.button("Discover OAuth Endpoints from FHIR Base", key="discover_endpoints"):
-        base = (st.session_state.get('fhir_base_url') or '').strip()
-        if not base:
-            st.error("Please provide a FHIR Base URL first.")
-        else:
-            try:
-                cfg = discover_smart_configuration(base)
-                auth_ep = cfg.get('authorization_endpoint')
-                token_ep = cfg.get('token_endpoint')
-                if auth_ep:
-                    st.session_state['fhir_auth_url'] = auth_ep
-                if token_ep:
-                    st.session_state['fhir_token_url'] = token_ep
-                st.success("Discovered endpoints.")
-                st.caption(f"Auth: {st.session_state['fhir_auth_url']}")
-                st.caption(f"Token: {st.session_state['fhir_token_url']}")
-            except Exception as e:
-                st.error(f"Discovery failed: {e}")
+    # Removed manual discovery button — handled automatically on selection
 
     # OAuth state
     st.session_state.setdefault('fhir_pkce_verifier', '')
@@ -426,9 +416,10 @@ with tab_fhir:
             aud=st.session_state.get('fhir_base_url') or None,
             response_mode="query",
         )
-        # Open in the same tab so the browser navigates away and comes back here via Redirect URI
-        st.markdown(f"<a href='{url}' target='_self' class='st-button st-primary'>Open Authorization URL</a>", unsafe_allow_html=True)
-        st.caption("Tip: We auto-capture the code from the URL when you return to this page.")
+        # Explain why user needs to click; open in same tab so the browser navigates away and returns via Redirect URI
+        st.markdown("To connect your Epic account, continue to Epic to sign in and grant this app read access to your records.")
+        st.markdown(f"<a href='{url}' target='_self' class='st-button st-primary'>Continue to Epic sign-in and authorize access</a>", unsafe_allow_html=True)
+        st.caption("After authorizing, you'll be redirected back here. We'll automatically capture the authorization code and exchange it for tokens.")
 
     # Code exchange
     # Try to auto-capture code from query params if user was redirected back to this page
@@ -520,22 +511,7 @@ with tab_fhir:
                             "- Confirm scopes and that aud is set to your FHIR Base.\n"
                             "- If discovery didn’t run, try 'Discover OAuth Endpoints' or the Epic preset."
                         )
-    if st.button("Exchange Code for Tokens", key="exchange_code"):
-        if not code:
-            st.error("Please paste the authorization code from the redirect URL.")
-        else:
-            try:
-                tokens = exchange_token(
-                    st.session_state['fhir_token_url'],
-                    code,
-                    st.session_state['fhir_client_id'],
-                    st.session_state['fhir_redirect_uri'],
-                    st.session_state['fhir_pkce_verifier'],
-                )
-                st.session_state['fhir_tokens'] = tokens
-                st.success("Received access token.")
-            except Exception as e:
-                st.error(f"Token exchange failed: {e}")
+    # Removed manual "Exchange Code for Tokens" — auto-exchange handles this when code is present
 
     # Synchronize all clinical data (appears after token exchange)
     if st.session_state.get('fhir_tokens'):
