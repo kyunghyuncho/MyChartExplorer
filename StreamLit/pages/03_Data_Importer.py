@@ -286,10 +286,23 @@ with tab_fhir:
     items_cached = st.session_state.get('epic_json_all') or []
     # Filter in-memory for responsiveness
     if items_cached:
+        # Restrict list to admin-authorized base URLs if provided
+        from modules.config import get_authorized_fhir_sites
+        auth_sites = get_authorized_fhir_sites() or []
+        allowed_bases = set((s.get('base_url') or '').rstrip('/') for s in auth_sites if s.get('base_url'))
+        if allowed_bases:
+            items_cached = [it for it in items_cached if (it.get('base_url') or '').rstrip('/') in allowed_bases]
         q = (epic_q or "").strip().lower()
         items = [it for it in items_cached if (q in (it.get('name','').lower()) or q in (it.get('base_url','').lower()))] if q else items_cached
         labels = [f"{it.get('name','?')} — {it.get('base_url','')}" for it in items[:500]]
-        sel = st.selectbox("Select a site", options=["—"] + labels, index=0, key="sel_epic_json")
+        # '-' should only show when no search or when search yields 0 results
+        if not q:
+            options = ["—"] + labels
+            default_index = 0
+        else:
+            options = labels if labels else ["—"]
+            default_index = 0
+        sel = st.selectbox("Select a site", options=options, index=0, key="sel_epic_json")
         if sel and sel != "—":
             idx = labels.index(sel)
             ent = items[idx]

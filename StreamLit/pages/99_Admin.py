@@ -18,6 +18,9 @@ from modules.config import (
     set_notes_summarization_enabled,
     get_fhir_admin_settings,
     set_fhir_admin_settings,
+    get_authorized_fhir_sites,
+    add_authorized_fhir_site,
+    remove_authorized_fhir_site,
 )
 from modules.invitations import (
     invite_user,
@@ -77,6 +80,71 @@ with tab_settings:
         st.success("SMART admin settings saved.")
 
     st.caption("Users will no longer edit these fields directly in the SMART tab; they will be read-only if set here.")
+
+    st.markdown("---")
+    st.subheader("Authorized Hospitals for FHIR Import")
+    st.caption("Only hospitals listed here will be selectable in the SMART importer. Add items after you complete authorization with each hospital.")
+    sites = get_authorized_fhir_sites()
+    if not sites:
+        st.info("No authorized hospitals yet.")
+    else:
+        for it in sites:
+            with st.expander(f"{it.get('name')} — {it.get('base_url')}"):
+                colh1, colh2 = st.columns([1, 1])
+                if colh1.button("Remove", key=f"remove-auth-site-{it.get('base_url')}"):
+                    remove_authorized_fhir_site(it.get('base_url',''))
+                    st.success("Removed.")
+    st.markdown("#### Add authorized hospital")
+    coln1, coln2 = st.columns([2, 3])
+    with coln1:
+        new_name = st.text_input("Organization name", key="new_auth_site_name")
+    with coln2:
+        new_base = st.text_input("FHIR Base URL", key="new_auth_site_base")
+    if st.button("Add to authorized list"):
+        if not new_base:
+            st.error("Please provide a FHIR Base URL.")
+        else:
+            add_authorized_fhir_site(new_name, new_base)
+            st.success("Added.")
+
+    st.markdown("---")
+    st.subheader("Epic Hospital Directory (Open Endpoints)")
+    st.caption("Browse Epic's public directory to find hospital FHIR bases, then add the ones you've authorized.")
+    epic_q = st.text_input("Search organization or URL", key="admin_epic_query", value="")
+    # Auto-load directory on first open in admin
+    if not st.session_state.get('admin_epic_directory'):
+        try:
+            with st.spinner("Loading Epic directory…"):
+                from modules.hospital_directory import fetch_epic_open_endpoints_json
+                items_all = fetch_epic_open_endpoints_json("https://open.epic.com/Endpoints/R4")
+                st.session_state['admin_epic_directory'] = items_all or []
+        except Exception as e:
+            st.warning(f"Could not load Epic directory: {e}")
+    items = st.session_state.get('admin_epic_directory') or []
+    if items:
+        q = (epic_q or "").strip().lower()
+        items_f = [it for it in items if (q in (it.get('name','').lower()) or q in (it.get('base_url','').lower()))] if q else items
+        labels = [f"{it.get('name','?')} — {it.get('base_url','')}" for it in items_f[:500]]
+        if labels:
+            sel = st.selectbox("Select a hospital to add", options=["—"] + labels, index=0, key="admin_sel_epic_json")
+            if sel and sel != "—":
+                idx = labels.index(sel)
+                ent = items_f[idx]
+                # Quick action row
+                colad1, colad2 = st.columns([2, 1])
+                with colad1:
+                    st.info({
+                        "name": ent.get('name'),
+                        "base_url": ent.get('base_url'),
+                    })
+                with colad2:
+                    if st.button("Add to authorized", key=f"btn_add_auth_{idx}"):
+                        add_authorized_fhir_site(ent.get('name','Healthcare Organization'), ent.get('base_url',''))
+                        st.success("Added to authorized list.")
+        else:
+            st.info("No results for your search.")
+    else:
+        st.info("Epic directory not available.")
     st.subheader("Email (SendGrid)")
     sg = st.text_input("SendGrid API Key", type="password", value=get_sendgrid_api_key())
     if st.button("Save SendGrid Key"):
