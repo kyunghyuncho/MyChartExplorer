@@ -12,7 +12,10 @@ from modules.auth import check_auth
 
 # Capture OAuth callback params early so we don't lose them if auth guard redirects
 try:
-    params = st.query_params  # type: ignore[attr-defined]
+    try:
+        params = st.query_params  # type: ignore[attr-defined]
+    except Exception:
+        params = st.experimental_get_query_params()  # type: ignore[attr-defined]
 
     raw_code = params.get('code')
     raw_state = params.get('state')
@@ -334,15 +337,19 @@ with tab_fhir:
             aud=st.session_state.get('fhir_base_url') or None,
             response_mode="query",
         )
-        st.link_button("Open Authorization URL", url)
-        st.info("After logging in and approving, copy the 'code' parameter from the redirected URL and paste it below.")
+        # Open in the same tab so the browser navigates away and comes back here via Redirect URI
+        st.markdown(f"<a href='{url}' target='_self' class='st-button st-primary'>Open Authorization URL</a>", unsafe_allow_html=True)
+        st.caption("Tip: We auto-capture the code from the URL when you return to this page.")
 
     # Code exchange
     # Try to auto-capture code from query params if user was redirected back to this page
     code_default = ""
     try:
         # Streamlit 1.32+ exposes st.query_params as a dict-like
-        params = st.query_params  # type: ignore[attr-defined]
+        try:
+            params = st.query_params  # type: ignore[attr-defined]
+        except Exception:
+            params = st.experimental_get_query_params()  # type: ignore[attr-defined]
         if isinstance(params, dict):
             raw = params.get('code')
             if isinstance(raw, list):
