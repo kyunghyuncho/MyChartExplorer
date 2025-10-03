@@ -357,6 +357,9 @@ def ingest_allergies(engine: Engine, items: List[Dict[str, Any]]) -> int:
                     reaction = _code_text(mans[0]) or reaction
             status = _code_text(it.get("clinicalStatus")) or (it.get("verificationStatus") or {}).get("text")
             effective = it.get("onsetDateTime") or it.get("recordedDate")
+            # Guard: require minimal identifying fields to avoid blank rows
+            if not substance or not effective:
+                continue
             exists = session.query(Allergy).filter_by(patient_id=pat.id, substance=substance, effective_date=effective).first()
             if exists:
                 continue
@@ -386,6 +389,9 @@ def ingest_conditions(engine: Engine, items: List[Dict[str, Any]]) -> int:
             status = _code_text(it.get("clinicalStatus"))
             onset = it.get("onsetDateTime") or ((it.get("onsetPeriod") or {}).get("start"))
             resolved = it.get("abatementDateTime") or ((it.get("abatementPeriod") or {}).get("end"))
+            # Guard: require name and onset for deduplication; skip otherwise
+            if not name or not onset:
+                continue
             exists = session.query(Problem).filter_by(patient_id=pat.id, problem_name=name, onset_date=onset).first()
             if exists:
                 continue
@@ -425,6 +431,9 @@ def ingest_medications(engine: Engine, statements: List[Dict[str, Any]], request
 
         for it in statements:
             name, instr, status, start, end = _med_fields(it)
+            # Guard: require name and start date
+            if not name or not start:
+                continue
             exists = session.query(Medication).filter_by(patient_id=pat.id, medication_name=name, start_date=start).first()
             if exists:
                 continue
@@ -434,6 +443,8 @@ def ingest_medications(engine: Engine, statements: List[Dict[str, Any]], request
 
         for it in requests:
             name, instr, status, start, end = _med_fields(it)
+            if not name or not start:
+                continue
             exists = session.query(Medication).filter_by(patient_id=pat.id, medication_name=name, start_date=start).first()
             if exists:
                 continue
@@ -456,6 +467,9 @@ def ingest_immunizations(engine: Engine, items: List[Dict[str, Any]]) -> int:
         for it in items:
             name = _code_text(it.get("vaccineCode"))
             date = it.get("occurrenceDateTime") or it.get("occurrenceString")
+            # Guard: require vaccine name and date
+            if not name or not date:
+                continue
             exists = session.query(Imm).filter_by(patient_id=pat.id, vaccine_name=name, date_administered=date).first()
             if exists:
                 continue
@@ -503,6 +517,9 @@ def ingest_observations(engine: Engine, items: List[Dict[str, Any]]) -> Tuple[in
             cats = _obs_category(o)
             code_name = _code_text(o.get("code")) or "Observation"
             eff = o.get("effectiveDateTime") or ((o.get("effectivePeriod") or {}).get("start"))
+            # Guard: require effective date; skip if missing to avoid duplicate/blank rows
+            if not eff:
+                continue
             # Components become additional results
             components = o.get("component") or []
 
@@ -570,6 +587,9 @@ def ingest_procedures(engine: Engine, items: List[Dict[str, Any]]) -> int:
                 p0 = (it.get("performer") or [None])[0] or {}
                 act = p0.get("actor") or {}
                 provider = act.get("display")
+            # Guard: require name and date
+            if not name or not date:
+                continue
             exists = session.query(Procedure).filter_by(patient_id=pat.id, procedure_name=name, date=date).first()
             if exists:
                 continue

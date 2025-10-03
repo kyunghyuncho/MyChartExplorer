@@ -448,6 +448,172 @@ with tab_fhir:
             except Exception as e:
                 st.error(f"Token exchange failed: {e}")
 
+    # Synchronize all clinical data (appears after token exchange)
+    if st.session_state.get('fhir_tokens'):
+        st.divider()
+        st.subheader("Synchronize all clinical data")
+        colS1, colS2 = st.columns(2)
+        with colS1:
+            since_all = st.text_input("Sync since (ISO 8601, optional)", key="sync_all_since", value="")
+        with colS2:
+            skip_bin_all = st.checkbox("Skip Binary attachments for notes", key="sync_all_skip_binary", value=False)
+        if st.button("Synchronize all", key="sync_all_button"):
+            try:
+                # Prepare DB
+                db_key = st.session_state.get('db_encryption_key')
+                engine = get_db_engine(db_path, key=db_key)
+                setup_database(engine)
+
+                base = st.session_state['fhir_base_url']
+                tokens = st.session_state['fhir_tokens']
+                pid = getattr(tokens, 'patient_id', None)
+
+                summary = {
+                    'patient_upserted': False,
+                    'allergies': 0,
+                    'problems': 0,
+                    'medications': 0,
+                    'immunizations': 0,
+                    'vitals': 0,
+                    'lab_results': 0,
+                    'procedures': 0,
+                    'notes_docref': 0,
+                    'notes_docref_skipped': 0,
+                    'notes_diagnostic': 0,
+                    'notes_diagnostic_skipped': 0,
+                    'errors': [],
+                }
+
+                prog = st.progress(0, text="Starting synchronization…")
+                step = 0
+                total_steps = 9
+
+                # 1. Patient demographics
+                try:
+                    if pid:
+                        pres = fetch_patient(base, tokens, pid)
+                        upsert_patient(engine, pres)
+                        summary['patient_upserted'] = True
+                except Exception as e:
+                    summary['errors'].append(f"Patient: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Synced Patient")
+
+                # 2. Allergies
+                try:
+                    items = fetch_allergy_intolerances(base, tokens, patient_id=pid, since=since_all or None)
+                    summary['allergies'] = ingest_allergies(engine, items)
+                except Exception as e:
+                    summary['errors'].append(f"Allergies: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Synced Allergies")
+
+                # 3. Problems (Conditions)
+                try:
+                    items = fetch_conditions(base, tokens, patient_id=pid, since=since_all or None)
+                    summary['problems'] = ingest_conditions(engine, items)
+                except Exception as e:
+                    summary['errors'].append(f"Problems: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Synced Problems")
+
+                # 4. Medications (Statements + Requests)
+                try:
+                    stmts = fetch_medication_statements(base, tokens, patient_id=pid, since=since_all or None)
+                    reqs = fetch_medication_requests(base, tokens, patient_id=pid, since=since_all or None)
+                    summary['medications'] = ingest_medications(engine, stmts, reqs)
+                except Exception as e:
+                    summary['errors'].append(f"Medications: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Synced Medications")
+
+                # 5. Immunizations
+                try:
+                    items = fetch_immunizations(base, tokens, patient_id=pid, since=since_all or None)
+                    summary['immunizations'] = ingest_immunizations(engine, items)
+                except Exception as e:
+                    summary['errors'].append(f"Immunizations: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Synced Immunizations")
+
+                # 6. Observations (Vitals + Labs)
+                try:
+                    vitals = fetch_observations(base, tokens, patient_id=pid, category="vital-signs", since=since_all or None)
+                    labs = fetch_observations(base, tokens, patient_id=pid, category="laboratory", since=since_all or None)
+                    nv, nr = ingest_observations(engine, vitals + labs)
+                    summary['vitals'] = nv
+                    summary['lab_results'] = nr
+                except Exception as e:
+                    summary['errors'].append(f"Observations: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Synced Observations")
+
+                # 7. Procedures
+                try:
+                    items = fetch_procedures(base, tokens, patient_id=pid, since=since_all or None)
+                    summary['procedures'] = ingest_procedures(engine, items)
+                except Exception as e:
+                    summary['errors'].append(f"Procedures: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Synced Procedures")
+
+                # Helper: Binary loader honoring skip flag
+                def _bin_loader(bid: str) -> bytes:
+                    if skip_bin_all:
+                        raise RuntimeError("Binary fetching disabled")
+                    return fetch_binary(base, tokens, bid)
+
+                # 8. Notes via DocumentReference
+                try:
+                    docs = fetch_document_references(base, tokens, patient_id=pid, since=since_all or None)
+                    new_rows, skipped = ingest_document_references(engine, docs, _bin_loader)
+                    summary['notes_docref'] = new_rows
+                    summary['notes_docref_skipped'] = skipped
+                except Exception as e:
+                    summary['errors'].append(f"DocumentReference: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Synced DocumentReference Notes")
+
+                # 9. Notes via DiagnosticReport.presentedForm
+                try:
+                    reports = fetch_diagnostic_reports(base, tokens, patient_id=pid, since=since_all or None)
+                    new_rows, skipped = ingest_diagnostic_reports_as_notes(engine, reports, _bin_loader)
+                    summary['notes_diagnostic'] = new_rows
+                    summary['notes_diagnostic_skipped'] = skipped
+                except Exception as e:
+                    summary['errors'].append(f"DiagnosticReport: {e}")
+                step += 1; prog.progress(int(step/total_steps*100), text="Finished synchronization")
+
+                # Update last sync if anything was added
+                if any([
+                    summary['allergies'], summary['problems'], summary['medications'],
+                    summary['immunizations'], summary['vitals'], summary['lab_results'],
+                    summary['procedures'], summary['notes_docref'], summary['notes_diagnostic'],
+                ]):
+                    from datetime import datetime, timezone
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    st.session_state['last_fhir_sync'] = now_iso
+                    try:
+                        save_configuration({"last_fhir_sync": now_iso})
+                    except Exception:
+                        pass
+
+                # Show summary
+                st.success("Synchronization complete")
+                st.json({
+                    "patient_upserted": summary['patient_upserted'],
+                    "allergies_imported": summary['allergies'],
+                    "problems_imported": summary['problems'],
+                    "medications_imported": summary['medications'],
+                    "immunizations_imported": summary['immunizations'],
+                    "vitals_imported": summary['vitals'],
+                    "lab_results_imported": summary['lab_results'],
+                    "procedures_imported": summary['procedures'],
+                    "notes_docref_imported": summary['notes_docref'],
+                    "notes_docref_skipped_no_content": summary['notes_docref_skipped'],
+                    "notes_diagnostic_imported": summary['notes_diagnostic'],
+                    "notes_diagnostic_skipped_no_content": summary['notes_diagnostic_skipped'],
+                    "errors": summary['errors'],
+                })
+                st.session_state['data_imported'] = True
+            except Exception as e:
+                tb = traceback.format_exc()
+                st.error(f"Synchronize all failed: {e}")
+                with st.expander("Error details"):
+                    st.code(tb)
+
     # Refresh
     if st.session_state.get('fhir_tokens') and getattr(st.session_state['fhir_tokens'], 'refresh_token', None):
         if st.button("Refresh Access Token", key="refresh_access_token"):
