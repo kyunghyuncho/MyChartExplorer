@@ -34,9 +34,6 @@ st.markdown(
     ## Commercialization and Implementation
     For commercial licensing, implementations, or partnerships (for clinics, hospitals, or networks), please reach out to **Kyunghyun Cho**, the sole member of **KC Explorer LLC**, at **kc@mychartexplorer.com** or visit **https://www.mychartexplorer.com**.
 
-    ## Notices
-    See the top-level `NOTICE` file for a summary of ownership and licensing, and the `LICENSE` files for full terms.
-
     ---
     These Terms & Conditions may be updated from time to time to reflect changes in licensing or project scope. Continued use of the software indicates acceptance of the current terms.
     """
