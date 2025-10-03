@@ -321,7 +321,9 @@ else:
                             if st.session_state.get('auto_consult', True) and st.session_state.get('pending_question'):
                                 try:
                                     rows_history = st.session_state.get('rows_history') or []
-                                    answer = llm_service.consult_conversation(st.session_state['chat_history'], rows_history)
+                                    # Show a spinner while the LLM composes its reply
+                                    with st.spinner("Thinking …"):
+                                        answer = llm_service.consult_conversation(st.session_state['chat_history'], rows_history)
                                     st.session_state['chat_history'].append({"role": "assistant", "content": answer})
                                     st.session_state['scroll_to_last_assistant'] = True
                                     st.session_state['pending_question'] = None
@@ -388,7 +390,8 @@ else:
             if st.session_state.get('consult_ready') and st.session_state.get('pending_question'):
                 if st.button("Consult", type="primary", key="consult_btn"):
                     try:
-                        with st.spinner("Consulting…"):
+                        # Show a spinner while the LLM composes its reply
+                        with st.spinner("Thinking …"):
                             # Use the full chat history and all retrieved data so far
                             rows_history = st.session_state.get('rows_history') or []
                             answer = llm_service.consult_conversation(st.session_state['chat_history'], rows_history)
