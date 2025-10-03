@@ -16,6 +16,8 @@ from modules.config import (
     set_notes_snippet_max_chars,
     get_notes_summarization_enabled,
     set_notes_summarization_enabled,
+    get_fhir_admin_settings,
+    set_fhir_admin_settings,
 )
 from modules.invitations import (
     invite_user,
@@ -57,6 +59,24 @@ with tab_settings:
         st.success("Preview settings saved.")
 
     st.markdown("---")
+    st.subheader("SMART on FHIR (Admin-only)")
+    cur = get_fhir_admin_settings()
+    colf1, colf2 = st.columns(2)
+    with colf1:
+        admin_client_id = st.text_input("Client ID (admin)", value=cur.get("client_id", ""))
+        admin_redirect = st.text_input("Redirect URI (admin)", value=cur.get("redirect_uri", ""))
+    with colf2:
+        admin_scopes = st.text_area(
+            "Scopes (space-separated)",
+            value=cur.get("scopes", "launch/patient patient/*.read offline_access openid profile"),
+            height=80,
+            help="These scopes will be used as the default for all users and are not editable outside admin.",
+        )
+    if st.button("Save SMART Admin Settings"):
+        set_fhir_admin_settings(admin_client_id, admin_redirect, admin_scopes)
+        st.success("SMART admin settings saved.")
+
+    st.caption("Users will no longer edit these fields directly in the SMART tab; they will be read-only if set here.")
     st.subheader("Email (SendGrid)")
     sg = st.text_input("SendGrid API Key", type="password", value=get_sendgrid_api_key())
     if st.button("Save SendGrid Key"):

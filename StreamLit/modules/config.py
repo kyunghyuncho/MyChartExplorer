@@ -258,3 +258,31 @@ def set_notes_summarization_enabled(enabled: bool) -> None:
     data = _read_json(global_path)
     data["notes_summarization_enabled"] = bool(enabled)
     _write_json(global_path, data)
+
+
+# -------- SMART on FHIR admin settings (admin-only) --------
+def get_fhir_admin_settings() -> dict:
+    """Return admin-controlled SMART settings: client_id, redirect_uri, scopes.
+
+    Values are read from the global config file (not per-user). If unset, returns empty strings.
+    """
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    return {
+        "client_id": (data or {}).get("fhir_client_id", ""),
+        "redirect_uri": (data or {}).get("fhir_redirect_uri", ""),
+        "scopes": (data or {}).get("fhir_scopes", "launch/patient patient/*.read offline_access openid profile"),
+    }
+
+
+def set_fhir_admin_settings(client_id: str | None = None, redirect_uri: str | None = None, scopes: str | None = None) -> None:
+    """Persist SMART admin settings into the global config (admin-only)."""
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    if client_id is not None:
+        data["fhir_client_id"] = client_id
+    if redirect_uri is not None:
+        data["fhir_redirect_uri"] = redirect_uri
+    if scopes is not None:
+        data["fhir_scopes"] = scopes
+    _write_json(global_path, data)

@@ -251,6 +251,16 @@ with tab_fhir:
         Note as DBNote,
     )
 
+    # SMART settings: Admin-controlled fields become read-only here if set globally
+    from modules.config import get_fhir_admin_settings
+    admin_smart = get_fhir_admin_settings()
+    admin_client_id = (admin_smart or {}).get('client_id') or ''
+    admin_redirect = (admin_smart or {}).get('redirect_uri') or ''
+    admin_scopes = (admin_smart or {}).get('scopes') or ''
+    readonly_client = bool(admin_client_id)
+    readonly_redirect = bool(admin_redirect)
+    readonly_scopes = bool(admin_scopes)
+
     # Editable settings (persist per-user config)
     col1, col2 = st.columns(2)
     with col1:
@@ -258,18 +268,51 @@ with tab_fhir:
         st.session_state['fhir_token_url'] = st.text_input("Token URL", value=st.session_state.get('fhir_token_url', ''))
         st.session_state['fhir_base_url'] = st.text_input("FHIR Base URL", value=st.session_state.get('fhir_base_url', ''))
     with col2:
-        st.session_state['fhir_client_id'] = st.text_input("Client ID", value=st.session_state.get('fhir_client_id', ''))
-        st.session_state['fhir_redirect_uri'] = st.text_input("Redirect URI", value=st.session_state.get('fhir_redirect_uri', 'http://localhost:8501'))
-        st.session_state['fhir_scopes'] = st.text_input("Scopes", value=st.session_state.get('fhir_scopes', 'launch/patient patient/*.read offline_access openid profile'))
+        # Client ID: mask in UI. If admin-set, do NOT send real value to browser.
+        if readonly_client:
+            # Keep the real value server-side for use in OAuth; show masked placeholder in a separate widget key
+            st.session_state['fhir_client_id'] = admin_client_id
+            st.text_input(
+                "Client ID",
+                value="********",
+                disabled=True,
+                type="password",
+                help="Admin-controlled",
+                key="fhir_client_id_mask",
+            )
+        else:
+            st.session_state['fhir_client_id'] = st.text_input(
+                "Client ID",
+                value=st.session_state.get('fhir_client_id', ''),
+                type="password",
+                help=None,
+            )
+        st.session_state['fhir_redirect_uri'] = st.text_input(
+            "Redirect URI",
+            value=admin_redirect or st.session_state.get('fhir_redirect_uri', 'http://localhost:8501'),
+            disabled=readonly_redirect,
+            help="Admin-controlled" if readonly_redirect else None,
+        )
+        st.session_state['fhir_scopes'] = st.text_input(
+            "Scopes",
+            value=admin_scopes or st.session_state.get('fhir_scopes', 'launch/patient patient/*.read offline_access openid profile'),
+            disabled=readonly_scopes,
+            help="Admin-controlled" if readonly_scopes else None,
+        )
     if st.button("Save FHIR Settings", key="save_fhir_settings"):
-        save_configuration({
+        # Persist per-user only for fields not controlled by admin
+        to_save = {
             "fhir_auth_url": st.session_state['fhir_auth_url'],
             "fhir_token_url": st.session_state['fhir_token_url'],
             "fhir_base_url": st.session_state['fhir_base_url'],
-            "fhir_client_id": st.session_state['fhir_client_id'],
-            "fhir_redirect_uri": st.session_state['fhir_redirect_uri'],
-            "fhir_scopes": st.session_state['fhir_scopes'],
-        })
+        }
+        if not readonly_client:
+            to_save["fhir_client_id"] = st.session_state['fhir_client_id']
+        if not readonly_redirect:
+            to_save["fhir_redirect_uri"] = st.session_state['fhir_redirect_uri']
+        if not readonly_scopes:
+            to_save["fhir_scopes"] = st.session_state['fhir_scopes']
+        save_configuration(to_save)
         st.toast("Saved FHIR settings", icon="✅")
 
     # Quick preset for Epic Public R4 sandbox
@@ -282,6 +325,52 @@ with tab_fhir:
             st.success("Applied Epic Public R4 endpoints via SMART discovery.")
         except Exception as e:
             st.error(f"Discovery failed: {e}")
+
+    # Epic Open Endpoints directory (JSON) search and select
+    with st.expander("Browse Epic endpoints (from open.epic.com)", expanded=False):
+        epic_q = st.text_input("Search organization or URL", key="epic_json_query", value="")
+        colEJ1, colEJ2 = st.columns([1, 3])
+        with colEJ1:
+            if st.button("Load Epic list", key="btn_load_epic_json"):
+                try:
+                    # Fetch and store results in session for browsing without re-fetching
+                    from modules.hospital_directory import fetch_epic_open_endpoints_json
+                    items_all = fetch_epic_open_endpoints_json("https://open.epic.com/Endpoints/R4")
+                    st.session_state['epic_json_all'] = items_all
+                    st.success(f"Loaded {len(items_all)} endpoints.")
+                except Exception as e:
+                    st.error(f"Failed to load Epic endpoints: {e}")
+        items_cached = st.session_state.get('epic_json_all') or []
+        # Filter in-memory for responsiveness
+        if items_cached:
+            q = (epic_q or "").strip().lower()
+            items = [it for it in items_cached if (q in (it.get('name','').lower()) or q in (it.get('base_url','').lower()))] if q else items_cached
+            labels = [f"{it.get('name','?')} — {it.get('base_url','')}" for it in items[:500]]
+            sel = st.selectbox("Select a site", options=["—"] + labels, index=0, key="sel_epic_json")
+            if sel and sel != "—":
+                idx = labels.index(sel)
+                ent = items[idx]
+                st.session_state['fhir_base_url'] = ent.get('base_url','')
+                # If JSON provided auth/token URLs, use them; else try SMART discovery
+                auth_url = ent.get('auth_url') or ''
+                token_url = ent.get('token_url') or ''
+                if auth_url:
+                    st.session_state['fhir_auth_url'] = auth_url
+                if token_url:
+                    st.session_state['fhir_token_url'] = token_url
+                if not auth_url or not token_url:
+                    try:
+                        cfg = discover_smart_configuration(st.session_state['fhir_base_url'])
+                        st.session_state['fhir_auth_url'] = cfg.get('authorization_endpoint', st.session_state.get('fhir_auth_url', ''))
+                        st.session_state['fhir_token_url'] = cfg.get('token_endpoint', st.session_state.get('fhir_token_url', ''))
+                        st.info("Filled missing OAuth URLs via SMART discovery.")
+                    except Exception as e:
+                        st.warning(f"SMART discovery failed for this site: {e}")
+                save_configuration({
+                    "fhir_base_url": st.session_state['fhir_base_url'],
+                    "fhir_auth_url": st.session_state.get('fhir_auth_url',''),
+                    "fhir_token_url": st.session_state.get('fhir_token_url',''),
+                })
 
     # Discovery from FHIR base
     if st.button("Discover OAuth Endpoints from FHIR Base", key="discover_endpoints"):
