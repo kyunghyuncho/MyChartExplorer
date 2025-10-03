@@ -1,4 +1,5 @@
 import streamlit as st
+from modules.ui import render_footer
 
 st.set_page_config(page_title="Instructions", layout="wide")
 
@@ -140,3 +141,5 @@ with tab3:
         "Privacy reminder: consider using a paid Gemini API key for improved privacy controls. See the Gemini API Terms (Unpaid Services may be used to improve Google's services): https://ai.google.dev/gemini-api/terms",
         icon="🔒",
     )
+    
+render_footer()

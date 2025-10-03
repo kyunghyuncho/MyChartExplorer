@@ -10,6 +10,7 @@ from modules.invitations import validate_invitation, mark_invitation_used
 import time
 import os
 from modules.admin import list_users
+from modules.ui import render_footer
 
 st.set_page_config(page_title="Register", layout="centered")
 st.title("Register a New User (Invitation Required)")
@@ -230,3 +231,4 @@ else:
 
 st.divider()
 st.page_link("Home.py", label="Back to Login", icon="🔐")
+render_footer()

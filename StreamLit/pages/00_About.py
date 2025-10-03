@@ -1,4 +1,5 @@
 import streamlit as st
+from modules.ui import render_footer
 
 st.set_page_config(page_title="About", layout="wide")
 
@@ -87,6 +88,4 @@ with tab_privacy:
         """
     )
 
-# Footer
-st.divider()
-st.caption("© 2025 KC Explorer LLC — StreamLit/ is PolyForm Noncommercial 1.0.0; other parts MIT. See LICENSE files in the repository.")
+render_footer()

@@ -1,4 +1,5 @@
 import streamlit as st
+from modules.ui import render_footer
 
 from modules.auth import check_auth
 from modules.admin import (
@@ -339,3 +340,5 @@ with tab_invites:
                     st.success(msg)
                 else:
                     st.error(msg)
+
+render_footer()

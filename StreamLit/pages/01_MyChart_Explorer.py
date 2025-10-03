@@ -12,6 +12,7 @@ from modules.llm_service import LLMService
 from modules.conversations import list_conversations, save_conversation, load_conversation, delete_conversation
 from modules.config import load_configuration, save_configuration
 from modules.auth import check_auth
+from modules.ui import render_footer
 
 # Check user authentication
 check_auth()
@@ -473,3 +474,5 @@ else:
                             st.code(sql, language="sql")
         else:
             st.info("No data retrieved yet. Ask a question to see relevant records.")
+
+    render_footer()

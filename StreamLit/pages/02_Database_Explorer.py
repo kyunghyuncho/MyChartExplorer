@@ -1,6 +1,7 @@
 # This page allows users to directly explore the contents of the database.
 
 import streamlit as st
+from modules.ui import render_footer
 import pandas as pd
 from modules.database import get_db_engine
 from sqlalchemy import inspect
@@ -55,3 +56,5 @@ else:
 
     except Exception as e:
         st.error(f"An error occurred while connecting to the database: {e}")
+
+render_footer()

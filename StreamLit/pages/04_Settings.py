@@ -4,6 +4,7 @@
 # Import necessary libraries
 import streamlit as st
 import os
+from modules.ui import render_footer
 from modules.config import load_configuration, save_configuration, get_db_size_limit_mb, set_db_size_limit_mb
 from modules.admin import is_superuser, export_user_zip
 from modules.ssh_tunnel import start_ssh_tunnel, stop_ssh_tunnel, get_tunnel_status
@@ -196,3 +197,5 @@ if username:
                 st.error(f"Failed to create export: {e}")
 else:
     st.info("Log in to export your data.")
+
+render_footer()

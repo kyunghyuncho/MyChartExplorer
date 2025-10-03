@@ -1,6 +1,7 @@
 # Import necessary libraries
 import streamlit as st
 import os
+from modules.ui import render_footer
 from modules.config import load_configuration
 from modules.auth import get_authenticator
 from streamlit_authenticator.utilities.exceptions import LoginError
@@ -129,7 +130,9 @@ if st.session_state.get("authentication_status"):
     st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
     st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
     st.sidebar.page_link("pages/06_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
-    st.sidebar.markdown("[License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
+    st.sidebar.markdown("[License (PolyForm Noncommercial)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/StreamLit/LICENSE)")
+    st.sidebar.markdown("[Other Parts License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
+    render_footer()
 
 # User is not logged in
 else:
@@ -150,8 +153,8 @@ else:
     # Sidebar quick links (kept minimal)
     st.sidebar.page_link("pages/01_MyChart_Explorer.py", label="MyChart Explorer", icon="💬")
     st.sidebar.page_link("pages/00_About.py", label="About", icon="ℹ️")
-    st.sidebar.page_link("pages/11_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
-    st.sidebar.markdown("[License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
+    st.sidebar.page_link("pages/06_Terms_and_Conditions.py", label="Terms & Conditions", icon="📄")
+    st.sidebar.markdown("[License (PolyForm Noncommercial)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/StreamLit/LICENSE)")
+    st.sidebar.markdown("[Other Parts License (MIT)](https://raw.githubusercontent.com/kyunghyuncho/MyChartExplorer/refs/heads/main/LICENSE)")
 
-    st.divider()
-    st.caption("© 2025 Kyunghyun Cho — MIT License. See the LICENSE file in the repository.")
+    render_footer()

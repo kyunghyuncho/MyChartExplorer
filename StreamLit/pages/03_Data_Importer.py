@@ -9,6 +9,7 @@ from modules.database import get_db_engine, setup_database
 from modules.importer import DataImporter
 from modules.config import load_configuration, get_db_size_limit_mb
 from modules.auth import check_auth
+from modules.ui import render_footer
 
 # Capture OAuth callback params early so we don't lose them if auth guard redirects
 try:
@@ -1335,3 +1336,5 @@ if st.session_state.get('import_error_logs'):
             mime="text/plain",
             key="persistent_error_log_dl",
         )
+
+render_footer()

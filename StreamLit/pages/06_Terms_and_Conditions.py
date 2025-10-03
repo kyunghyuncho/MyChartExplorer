@@ -1,4 +1,5 @@
 import streamlit as st
+from modules.ui import render_footer
 
 st.set_page_config(page_title="Terms & Conditions", layout="wide")
 
@@ -66,3 +67,5 @@ st.markdown(
     12) Contact — Questions? Email kc@mychartexplorer.com.
     """
 )
+
+render_footer()
