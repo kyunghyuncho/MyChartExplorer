@@ -1,5 +1,9 @@
 import streamlit as st
 
+st.set_page_config(page_title="Terms (Duplicate)", layout="wide")
+st.title("Terms (Duplicate)")
+st.info("This page has moved. Please use the 'Terms & Conditions' page in the sidebar.")
+
 st.set_page_config(page_title="Terms & Conditions", layout="wide")
 st.title("Terms & Conditions")
 

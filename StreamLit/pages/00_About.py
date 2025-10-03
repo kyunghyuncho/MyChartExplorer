@@ -9,7 +9,7 @@ tab_overview, tab_privacy = st.tabs(["Overview", "If you care about privacy …"
 with tab_overview:
     st.markdown(
         """
-        **MyChart Explorer** is an experimental platform intended for experienced users (for example, software developers) who want to explore their personal health records locally and privately.
+        **MyChart Explorer** is an experimental platform provided by **KC Explorer LLC** (managed by the sole member, **Kyunghyun Cho**). It is intended for experienced users (for example, software developers) who want to explore their personal health records locally and privately.
 
         The goal of this experiment is to demonstrate how we can democratize access to our own medical records to maintain and improve our health. In the long run, approaches like this can help lower the burden on care providers and improve the overall quality of care.
         """
@@ -31,18 +31,29 @@ with tab_overview:
         """
         Built by **Kyunghyun Cho**. Learn more at: [https://kyunghyuncho.me/](https://kyunghyuncho.me/)
 
-        If you'd like to reach out, please email me, although I can't promise a response due to bandwidth constraints.
+        If you'd like to reach out, please email **kc@mychartexplorer.com** or visit **https://www.mychartexplorer.com**. I can't promise a response due to bandwidth constraints.
 
         I’m open to discussion—both about this experimental platform and healthcare more broadly. Feedback, ideas, critiques, and requests for collaborations are welcome.
         """
     )
 
-    st.subheader("Open Source & Feedback")
+    st.subheader("Open Source, License & Feedback")
     st.markdown(
         """
-        This project is open-source. You're welcome to leave comments or file issues here:
+        Licensing:
+        - Streamlit app: PolyForm Noncommercial 1.0.0 — see `StreamLit/LICENSE` in the repository.
+        - Other parts (Python scripts, Swift app): MIT — see the root `LICENSE`.
+
+        You're welcome to leave comments or file issues here:
         
         https://github.com/kyunghyuncho/MyChartExplorer/tree/main/StreamLit
+        """
+    )
+
+    st.subheader("Commercialization and Implementation")
+    st.markdown(
+        """
+        For commercial licensing, implementations, or partnerships (for clinics, hospitals, or networks), please reach out to **Kyunghyun Cho**, the sole member of **KC Explorer LLC**, at **kc@mychartexplorer.com** or visit **https://www.mychartexplorer.com**.
         """
     )
 
@@ -78,4 +89,4 @@ with tab_privacy:
 
 # Footer
 st.divider()
-st.caption("© 2025 Kyunghyun Cho — MIT License. See the LICENSE file in the repository.")
+st.caption("© 2025 KC Explorer LLC — StreamLit/ is PolyForm Noncommercial 1.0.0; other parts MIT. See LICENSE files in the repository.")

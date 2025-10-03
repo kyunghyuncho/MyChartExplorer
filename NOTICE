@@ -1,0 +1,18 @@
+MyChart Explorer — NOTICE
+
+Owner: KC Explorer LLC (sole member: Kyunghyun Cho)
+Year: 2025
+
+Licensing Overview
+- StreamLit/ (Streamlit application): PolyForm Noncommercial 1.0.0 (see StreamLit/LICENSE)
+- All other parts of the repository (e.g., PythonVersion/, GeminiMyChartExplorer/): MIT (see LICENSE)
+
+Purpose and Status
+- This is an experimental platform for personal, noncommercial use of MyChart data exploration.
+- Not a medical device; informational only.
+
+Attributions
+- This project may include third-party components under their respective licenses. See the relevant files and dependency manifests for details.
+
+Contact for Commercialization and Implementation
+- For commercial licensing, implementations, or partnerships, contact Kyunghyun Cho (KC Explorer LLC) at kc@mychartexplorer.com or visit https://www.mychartexplorer.com.

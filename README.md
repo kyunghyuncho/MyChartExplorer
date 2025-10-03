@@ -1,10 +1,12 @@
 # MyChart Explorer — Streamlit App
 
+Provided by KC Explorer LLC (sole member: Kyunghyun Cho). This is an experimental platform.
+
 Explore and consult on your MyChart-exported health data with an AI assistant. Import CCDA/XML, store locally in SQLite, retrieve relevant records with safe, read-only SQL, and get concise answers grounded in your own chart.
 
 Live app: https://www.mychartexplorer.com
 
-Disclaimer: This is not a medical device. Informational only. Always consult a qualified clinician for medical advice.
+Disclaimer: This is not a medical device. Informational only. Always consult a qualified clinician for medical advice. Provided on an as-is basis without warranties or liability, as detailed in the applicable licenses.
 
 ---
 
@@ -63,4 +65,10 @@ pip install -r requirements.txt
 
 ## License
 
-MIT — see LICENSE
+This repository uses different licenses for different parts:
+
+- `StreamLit/` (Streamlit application): PolyForm Noncommercial 1.0.0 — see `StreamLit/LICENSE`
+- Everything else (e.g., `PythonVersion/`, `GeminiMyChartExplorer/`): MIT — see `LICENSE`
+
+Commercialization and Implementation
+- For commercial licensing, implementations, or partnerships, please contact Kyunghyun Cho (sole member of KC Explorer LLC) at kc@mychartexplorer.com or visit https://www.mychartexplorer.com.
