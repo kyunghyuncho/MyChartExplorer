@@ -334,6 +334,7 @@ class LLMService:
 Given the following database schema:
 {schema}
 {convo_block}
+{convo_block} 
 
 Produce up to {max_queries} small, distinct SQLite read-only SQL queries (strings) that together help answer:
 "{question}"
@@ -678,6 +679,8 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
     def consult(self, question: str, rows) -> str:
         # Format retrieved rows
         results_str = "\n".join([str(row) for row in rows]) if rows else "(no rows)"
+        if not rows:
+            return self._insufficient_message()
         # Build patient context and prepend it
         patient_context = self._get_patient_context_text()
         final_prompt = f"""
@@ -688,16 +691,27 @@ Based on the following data from the user's medical records:
 {results_str}
 
 Answer the following question: "{question}"
+
+Grounding and rules (strict):
+- Use ONLY the information provided above from this patient's chart and patients' earlier responses, together with well-established medical knowledge.
+- If the data is insufficient to answer, say so explicitly and request the missing information needed.
+- Prefer concrete details from the chart (dates, values, meds, dosages) and avoid speculation.
+
+Output style:
+- Be concise. Use short sentences or bullet points.
+- Be kind and polite.
 """
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
         elif cfg["llm_provider"] == "openrouter":
-            concise_inst = (
-                "You are a clinical data assistant. Be concise and direct. Use short paragraphs or bullet points. "
-                "Avoid repeating the question; avoid long preambles."
+            sys_inst = (
+                "You are a clinical data assistant grounded strictly to the provided patient chart and user messages. "
+                "Answer only using that data; if insufficient, state that clearly and request for missing items. "
+                "Be concise and use bullet points when helpful."
+                "Be kind and polite."
             )
-            return self._query_openrouter(final_prompt, cfg, system_instruction=concise_inst, max_tokens=800, temperature=0.2)
+            return self._query_openrouter(final_prompt, cfg, system_instruction=sys_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -710,6 +724,8 @@ Answer the following question: "{question}"
             subset_lines = self._preview_rows(rows)
             previews.append(f"-- Result set {idx} --\n" + "\n".join(subset_lines))
         results_str = "\n\n".join(previews) if previews else "(no rows)"
+        if not previews:
+            return self._insufficient_message()
         patient_context = self._get_patient_context_text()
         final_prompt = f"""
 Patient context:
@@ -719,16 +735,27 @@ Based on the following data from the user's medical records (multiple subsets):
 {results_str}
 
 Answer the following question: "{question}"
+
+Grounding and rules (strict):
+- Use ONLY the information provided above from this patient's chart and patients' earlier responses, together with well-established medical knowledge.
+- If the data is insufficient to answer, say so explicitly and request the missing information needed.
+- Prefer concrete details from the chart (dates, values, meds, dosages) and avoid speculation.
+
+Output style:
+- Be concise. Use short sentences or bullet points.
+- Be kind and polite.
 """
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
         elif cfg["llm_provider"] == "openrouter":
-            concise_inst = (
-                "You are a clinical data assistant. Be concise and direct. Use short paragraphs or bullet points. "
-                "Avoid repeating the question; avoid long preambles."
+            sys_inst = (
+                "You are a clinical data assistant grounded strictly to the provided patient chart and user messages. "
+                "Answer only using that data; if insufficient, state that clearly and request for missing items. "
+                "Be concise and use bullet points when helpful."
+                "Be kind and polite."
             )
-            return self._query_openrouter(final_prompt, cfg, system_instruction=concise_inst, max_tokens=800, temperature=0.2)
+            return self._query_openrouter(final_prompt, cfg, system_instruction=sys_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -762,6 +789,8 @@ Answer the following question: "{question}"
             subset_lines = self._preview_rows(rows)
             previews.append(f"-- Result set {idx} --\n" + "\n".join(subset_lines))
         results_str = "\n\n".join(previews) if previews else "(no rows collected)"
+        if not previews:
+            return self._insufficient_message()
 
         # Last user question (fallback to empty)
         last_q = next((m.get("content") for m in reversed(hist_tail) if m.get("role") == "user"), "")
@@ -778,20 +807,38 @@ Data gathered so far (across multiple queries and turns):
 {results_str}
 
 Task:
-Provide the best possible, accurate, and concise answer to the last user question in the conversation above.
+Provide the best possible, accurate, kind, polite and concise answer to the last user question in the conversation above.
 If the data is insufficient, state clearly what is missing or cannot be concluded from the available records.
+
+Grounding and rules (strict):
+- Use ONLY the information provided above from this patient's chart and patients' earlier responses, together with well-established medical knowledge.
+- If the data is insufficient to answer, say so explicitly and request the missing information needed.
+- Prefer concrete details from the chart (dates, values, meds, dosages) and avoid speculation.
+
+Output style:
+- Be concise. Use short sentences or bullet points.
+- Be kind and polite.
 """
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
         elif cfg["llm_provider"] == "openrouter":
-            concise_inst = (
-                "You are a clinical data assistant. Be concise and direct. Use short paragraphs or bullet points. "
-                "Avoid repeating the question; avoid long preambles."
+            sys_inst = (
+                "You are a clinical data assistant grounded strictly to the provided patient chart and user messages. "
+                "Answer only using that data; if insufficient, state that clearly and request for missing items. "
+                "Be concise and use bullet points when helpful."
+                "Be kind and polite."
             )
-            return self._query_openrouter(final_prompt, cfg, system_instruction=concise_inst, max_tokens=800, temperature=0.2)
+            return self._query_openrouter(final_prompt, cfg, system_instruction=sys_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
+
+    def _insufficient_message(self) -> str:
+        """Standard response when no relevant chart data is available to answer."""
+        return (
+            "I don’t have enough information from the patient’s records to answer that. "
+            "Please import or select more records, or ask a more specific, chart-based question.\n"
+        )
 
     # ---------------- Preview helpers -----------------
     def _get_preview_limits(self) -> tuple[int, int, int]:

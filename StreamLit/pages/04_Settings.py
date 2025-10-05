@@ -6,6 +6,10 @@ import streamlit as st
 import os
 from modules.ui import render_footer
 from modules.config import load_configuration, save_configuration, get_db_size_limit_mb, set_db_size_limit_mb
+from modules.config import _get_active_config_path  # reveal where settings are saved
+from modules.config import _read_file_config  # to verify writes without session overlay
+from modules.config import _read_json  # to read global config for migration
+from modules.paths import get_global_config_json_path
 from modules.admin import is_superuser, export_user_zip
 from modules.ssh_tunnel import start_ssh_tunnel, stop_ssh_tunnel, get_tunnel_status
 from modules.auth import check_auth
@@ -19,6 +23,42 @@ st.title("Settings")
 
 # Load the current configuration (syncs session_state from disk)
 config = load_configuration()
+active_path = _get_active_config_path()
+st.caption(f"Active settings file: {active_path}")
+
+# If logged in, offer migration from global config.json when per-user values are empty
+username = st.session_state.get("username")
+if isinstance(username, str) and username.strip():
+    try:
+        global_path = get_global_config_json_path()
+        if global_path != active_path:
+            disk_user = _read_file_config() or {}
+            disk_global = _read_json(global_path) or {}
+            # Candidate keys to migrate
+            migrate_keys = [
+                "llm_provider",
+                "openrouter_api_key",
+                "openrouter_base_url",
+                "ollama_url",
+                "ollama_model",
+                "auto_consult",
+            ]
+            missing = [k for k in migrate_keys if not (disk_user.get(k) or "") and (disk_global.get(k) or "")]
+            if missing:
+                with st.expander("Detected settings in global config; import into your profile?"):
+                    st.caption("We found values in the global settings file that are empty in your user profile. You can import them below.")
+                    if st.button("Import from global now"):
+                        to_import = {k: disk_global.get(k) for k in missing}
+                        # Persist into user's config
+                        save_configuration(to_import)
+                        # Reflect into session_state immediately
+                        for k, v in to_import.items():
+                            st.session_state[k] = v
+                        st.success("Imported settings from global into your user profile.")
+                        # Refresh page state
+                        config = load_configuration()
+    except Exception:
+        pass
 
 # Create a form for the settings
 with st.form("settings_form"):
@@ -138,8 +178,24 @@ with st.form("settings_form"):
         # Also reflect saved values into session_state so other pages pick them up immediately
         for k, v in new_config.items():
             st.session_state[k] = v
-    # Show a success message
-    st.success("Settings saved successfully!")
+        # Read raw file (no session overlay) to verify persistence
+        disk_after = _read_file_config() or {}
+        mismatches = []
+        if (openrouter_api_key or "") != (disk_after.get("openrouter_api_key") or ""):
+            mismatches.append("OpenRouter API Key")
+        if (openrouter_base_url or "") != (disk_after.get("openrouter_base_url") or ""):
+            mismatches.append("OpenRouter Base URL")
+        if (ollama_url or "") != (disk_after.get("ollama_url") or ""):
+            mismatches.append("Ollama URL")
+        if (ollama_model or "") != (disk_after.get("ollama_model") or ""):
+            mismatches.append("Ollama Model")
+        if mismatches:
+            st.error(
+                "Some settings did not persist as expected: " + ", ".join(mismatches) + ". "
+                "Please check file permissions and that you're editing the correct user profile."
+            )
+        else:
+            st.success("Settings saved successfully!")
 
 # Add buttons to start and stop the SSH tunnel
 st.subheader("SSH Tunnel Control")

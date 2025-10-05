@@ -23,11 +23,21 @@ def _get_active_config_path() -> str:
     so each user gets an isolated config. Otherwise fall back to the default path.
     """
     try:
+        # 1) If an explicit config_path is set, honor it
         path = st.session_state.get("config_path")
         if isinstance(path, str) and path.strip():
             return path
+        # 2) If the user is authenticated, prefer their per-user config path
+        username = st.session_state.get("username")
+        if isinstance(username, str) and username.strip():
+            try:
+                from .paths import get_user_config_json_path  # lazy import to avoid cycles
+                return get_user_config_json_path(username)
+            except Exception:
+                pass
     except Exception:
         pass
+    # 3) Fallback to global config.json when not logged in
     return DEFAULT_CONFIG_PATH
 
 
