@@ -13,11 +13,11 @@ Disclaimer: This is not a medical device. Informational only. Always consult a q
 ## Highlights
 
 - Import MyChart CCDA/XML into a private SQLite database
-- Conversation-style Q&A with Gemini or Ollama
+- Conversation-style Q&A with OpenRouter or Ollama
 - Read-only SQL generation with strict sanitizer (SELECT/WITH only)
 - Conversation-aware answers using all retrieved context so far
 - Save/load conversations; self-serve data export (decrypted-only)
-- Configurable backend: Gemini API key or local Ollama (SSH tunnel supported)
+- Configurable backend: OpenRouter API key or local Ollama (SSH tunnel supported)
 
 ## Privacy & Security
 

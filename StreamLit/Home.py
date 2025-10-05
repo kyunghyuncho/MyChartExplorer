@@ -19,6 +19,14 @@ st.set_page_config(
     layout="wide",
 )
 
+st.info(
+    "Waiting list: MyChart Explorer is currently invitation-only while we scale. "
+    "If you'd like early access or an invitation, please add your name to our waiting list. "
+    "We'll notify you as slots open.\n\n"
+    "[Join the waiting list →](https://forms.gle/V1o55agKKoiZ11jR7)",
+    icon="📝",
+)
+
 st.title("MyChart Explorer")
 st.caption("Explore and consult on your own MyChart-exported health records.")
 

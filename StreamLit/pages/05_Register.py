@@ -13,11 +13,13 @@ from modules.admin import list_users
 from modules.ui import render_footer
 
 st.set_page_config(page_title="Register", layout="centered")
-st.title("Register a New User (Invitation Required)")
+st.title("Register a New User Account")
 st.info(
-    "Beta service: Registration requires an invitation code. "
-    "To request an invitation, email kc@mychartexplorer.com.",
-    icon="🧪",
+    "Waiting list: MyChart Explorer is currently invitation-only while we scale. "
+    "If you'd like early access or an invitation, please add your name to our waiting list. "
+    "We'll notify you as slots open.\n\n"
+    "[Join the waiting list →](https://forms.gle/V1o55agKKoiZ11jR7)",
+    icon="📝",
 )
 
 # Load or create authenticator config
@@ -184,7 +186,6 @@ else:
         password = st.text_input("Password", type="password")
         confirm = st.text_input("Confirm Password", type="password")
         code = st.text_input("Invitation Code")
-        st.caption("Don't have a code? Email kc@mychartexplorer.com to request an invitation.")
         submitted = st.form_submit_button("Register")
 
     if submitted:
