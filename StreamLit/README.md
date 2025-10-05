@@ -13,7 +13,7 @@ Disclaimer: This is not a medical device. Informational only. Always consult a q
 - Python 3.11+
 - macOS or Linux recommended
 - Recommended: a virtual environment
-- Optional: GPU-backed Ollama for local LLMs, or a Gemini API key
+- Optional: GPU-backed Ollama for local LLMs, or an OpenRouter API key
 
 ## Setup
 
@@ -82,7 +82,7 @@ This application supports multi-user environments by providing a user registrati
 - MyChart Explorer (Chat): ask questions; the app retrieves relevant data and consults on it.
 - Database Explorer: browse tables and rows.
 - Data Importer: import your MyChart XML into a local SQLite DB.
-- Settings: configure LLM backend, models, Gemini key, and SSH tunnel.
+- Settings: configure LLM backend, models, OpenRouter key, and SSH tunnel.
 - Instructions: How to use the app.
 
 ## Tested Data Sources
@@ -98,14 +98,14 @@ For reference during development and debugging:
 - Human-readable schema: `docs/SCHEMA.md`
 - SQLite DDL: `schema.sql`
 
-## Backends: Ollama and Gemini
+## Backends: Ollama and OpenRouter
 
 - Switch backend in two places:
   - Sidebar of MyChart Explorer (quick switch)
   - Settings page (persist model names and other details)
-- Gemini
-  - Set your API key in Settings.
-  - Default model: `gemini-2.5-pro` (you can change it on the Settings page).
+- OpenRouter
+  - Set your OpenRouter API key in Settings (and optional base URL).
+  - Hosted model is currently fixed to `google/gemini-2.5-flash` to ensure concise and fast replies.
 - Ollama
   - Point Ollama URL and set model name in Settings (e.g., `llama3`, `llama3.1:8b`).
 
@@ -121,7 +121,7 @@ Configure SSH host/user in Settings. Use the SSH Tunnel Control buttons to start
 
 - "Import could not be resolved" in editor: ensure you’re using the `.venv` Python in your editor. The app still runs if packages are installed in `.venv`.
 - Widget state errors: Avoid setting widget-related keys in `st.session_state`. Configuration saves only whitelist known config keys.
-- Gemini calls failing: confirm your API key and model name in Settings.
+- OpenRouter calls failing: confirm your API key and base URL in Settings. Ensure the hosted model `google/gemini-2.5-flash` is available to your account.
 - Pandas not installed: tables fall back to text; install `pandas` for DataFrame previews.
 
 ## Tips

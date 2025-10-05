@@ -1,9 +1,9 @@
 # This module handles all interactions with the Large Language Models (LLMs).
-# It provides a unified interface for different LLM backends like Ollama and Gemini.
+# It provides a unified interface for different LLM backends like Ollama and OpenRouter.
+ # It provides a unified interface for different LLM backends like Ollama and OpenRouter.
 
 # Import necessary libraries
 import streamlit as st
-import google.generativeai as genai
 import requests
 import json
 import re
@@ -37,16 +37,34 @@ class LLMService:
         """
         # Default configuration
         config = {
-            "llm_provider": "gemini",
+            "llm_provider": "openrouter",
             "ollama_url": "http://localhost:11434",
             "ollama_model": "llama3",
-            "gemini_api_key": None,
-            "gemini_model": "gemini-1.5-flash",
+            # OpenRouter
+            "openrouter_api_key": None,
+            "openrouter_base_url": "https://openrouter.ai/api/v1",
         }
         # Override with session state if available
         for key in config:
             if key in st.session_state:
                 config[key] = st.session_state[key]
+        # Defensive: coerce legacy/unknown providers to a supported choice
+        try:
+            prov_raw = config.get("llm_provider")
+            prov = str(prov_raw).strip().lower() if prov_raw is not None else ""
+        except Exception:
+            prov = ""
+        if prov not in ("ollama", "openrouter"):
+            if prov == "gemini":
+                # Prefer OpenRouter if an API key is configured; otherwise fall back to Ollama
+                prov = "openrouter" if config.get("openrouter_api_key") else "ollama"
+            else:
+                prov = "openrouter" if config.get("openrouter_api_key") else "ollama"
+        # Persist normalized provider to avoid mismatches elsewhere
+        config["llm_provider"] = prov or "openrouter"
+        # Ensure base URL default is present
+        if not config.get("openrouter_base_url"):
+            config["openrouter_base_url"] = "https://openrouter.ai/api/v1"
         return config
 
     def _get_db_schema(self):
@@ -286,26 +304,21 @@ class LLMService:
         """
         # Use the configured LLM provider to generate the SQL
         cfg = self._load_config()
-        if cfg["llm_provider"] == "ollama":
+        prov = str(cfg.get("llm_provider") or "").strip().lower()
+        if prov == "ollama":
             # Generate SQL using Ollama
             return self._query_ollama(prompt, cfg)
-        elif cfg["llm_provider"] == "gemini":
-            # Generate SQL using Gemini (strict, plain text)
+        elif prov == "openrouter":
+            # Generate SQL using OpenRouter (strict, plain text)
             sys_inst = (
                 "You are a SQLite query generator. Output exactly one valid SQLite statement that starts with SELECT or WITH. "
                 "No markdown, no explanations, no comments, no code fences. Do not use parameters; inline literal values. "
                 "Use only columns from the provided schema and avoid fabricating columns or labels."
             )
-            return self._query_gemini(
-                prompt,
-                cfg,
-                response_mime_type="text/plain",
-                temperature=0.1,
-                system_instruction=sys_inst,
-            )
+            return self._query_openrouter(prompt, cfg, system_instruction=sys_inst, max_tokens=400, temperature=0.1)
         else:
             # Raise an error if the provider is not supported
-            raise ValueError("Unsupported LLM provider")
+            raise ValueError(f"Unsupported LLM provider: {cfg.get('llm_provider')}")
 
     def _generate_sql_batch(self, question: str, max_queries: int = 4, history_text: str | None = None) -> str:
         """Ask the LLM for multiple small, focused SQL queries as a JSON array of strings."""
@@ -340,22 +353,17 @@ Retrieval-only rules (strict):
 - Avoid UNIONs that add label columns; return raw rows from the relevant table(s).
 """
         cfg = self._load_config()
-        if cfg["llm_provider"] == "ollama":
+        prov = str(cfg.get("llm_provider") or "").strip().lower()
+        if prov == "ollama":
             return self._query_ollama(prompt, cfg)
-        elif cfg["llm_provider"] == "gemini":
+        elif prov == "openrouter":
             sys_inst = (
                 "You produce only a compact JSON array of strings. Each string is one valid SQLite SELECT or WITH statement. "
                 "No markdown, no comments, no additional text. Do not use parameters; inline literal values."
             )
-            return self._query_gemini(
-                prompt,
-                cfg,
-                response_mime_type="application/json",
-                temperature=0.1,
-                system_instruction=sys_inst,
-            )
+            return self._query_openrouter(prompt, cfg, system_instruction=sys_inst, max_tokens=600, temperature=0.1, force_json=True)
         else:
-            raise ValueError("Unsupported LLM provider")
+            raise ValueError(f"Unsupported LLM provider: {cfg.get('llm_provider')}")
 
     # Public pipeline helpers for the UI
     def generate_sql(self, question: str, chat_history: list[dict] | None = None) -> str:
@@ -421,10 +429,9 @@ Do NOT use parameters (? or :name); inline literal values only.
             raw_sql = (
                 self._query_ollama(retry_prompt, cfg)
                 if cfg["llm_provider"] == "ollama"
-                else self._query_gemini(
+                else self._query_openrouter(
                     retry_prompt,
                     cfg,
-                    response_mime_type="text/plain",
                     temperature=0.1,
                     system_instruction=(
                         "You are a SQLite query generator. Return exactly one corrected valid SQLite statement that starts with SELECT or WITH. "
@@ -460,10 +467,9 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
             raw_sql2 = (
                 self._query_ollama(retry_prompt, cfg)
                 if cfg["llm_provider"] == "ollama"
-                else self._query_gemini(
+                else self._query_openrouter(
                     retry_prompt,
                     cfg,
-                    response_mime_type="text/plain",
                     temperature=0.1,
                     system_instruction=(
                         "You are a SQLite query generator. Return exactly one corrected valid SQLite statement that starts with SELECT or WITH. "
@@ -609,10 +615,9 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
                     raw_sql2 = (
                         self._query_ollama(retry_prompt, cfg)
                         if cfg["llm_provider"] == "ollama"
-                        else self._query_gemini(
+                        else self._query_openrouter(
                             retry_prompt,
                             cfg,
-                            response_mime_type="text/plain",
                             temperature=0.1,
                             system_instruction=(
                                 "You are a SQLite query generator. Return exactly one corrected valid SQLite statement that starts with SELECT or WITH. "
@@ -687,8 +692,12 @@ Answer the following question: "{question}"
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
-        elif cfg["llm_provider"] == "gemini":
-            return self._query_gemini(final_prompt, cfg)
+        elif cfg["llm_provider"] == "openrouter":
+            concise_inst = (
+                "You are a clinical data assistant. Be concise and direct. Use short paragraphs or bullet points. "
+                "Avoid repeating the question; avoid long preambles."
+            )
+            return self._query_openrouter(final_prompt, cfg, system_instruction=concise_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -714,8 +723,12 @@ Answer the following question: "{question}"
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
-        elif cfg["llm_provider"] == "gemini":
-            return self._query_gemini(final_prompt, cfg)
+        elif cfg["llm_provider"] == "openrouter":
+            concise_inst = (
+                "You are a clinical data assistant. Be concise and direct. Use short paragraphs or bullet points. "
+                "Avoid repeating the question; avoid long preambles."
+            )
+            return self._query_openrouter(final_prompt, cfg, system_instruction=concise_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -771,8 +784,12 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
-        elif cfg["llm_provider"] == "gemini":
-            return self._query_gemini(final_prompt, cfg)
+        elif cfg["llm_provider"] == "openrouter":
+            concise_inst = (
+                "You are a clinical data assistant. Be concise and direct. Use short paragraphs or bullet points. "
+                "Avoid repeating the question; avoid long preambles."
+            )
+            return self._query_openrouter(final_prompt, cfg, system_instruction=concise_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -928,9 +945,9 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
         if self.config["llm_provider"] == "ollama":
             # Summarize using Ollama
             return self._query_ollama(prompt)
-        elif self.config["llm_provider"] == "gemini":
-            # Summarize using Gemini
-            return self._query_gemini(prompt)
+        elif self.config["llm_provider"] == "openrouter":
+            # Summarize using OpenRouter
+            return self._query_openrouter(prompt, None)
         else:
             # Raise an error if the provider is not supported
             raise ValueError("Unsupported LLM provider")
@@ -951,8 +968,8 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
         try:
             if cfg["llm_provider"] == "ollama":
                 out = self._query_ollama(prompt, cfg)
-            elif cfg["llm_provider"] == "gemini":
-                out = self._query_gemini(prompt, cfg, response_mime_type="text/plain", temperature=0.2)
+            elif cfg["llm_provider"] == "openrouter":
+                out = self._query_openrouter(prompt, cfg, max_tokens=500, temperature=0.2)
             else:
                 out = ""
         except Exception:
@@ -998,55 +1015,63 @@ If the data is insufficient, state clearly what is missing or cannot be conclude
         # Parse the JSON response and return the content
         return response.json()["response"].strip()
 
-    def _query_gemini(
+    def _query_openrouter(
         self,
         prompt: str,
         cfg=None,
-        response_mime_type: str | None = None,
-        temperature: float | None = None,
         system_instruction: str | None = None,
-    ):
-        """
-        Queries the Gemini API with optional system instructions and response MIME type control.
-        Defaults remain compatible with older usage.
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        force_json: bool = False,
+    ) -> str:
+        """Query OpenRouter chat/completions API with a locked model.
+
+        - Uses model: google/gemini-2.5-flash
+        - Requires Authorization Bearer key
+        - Optional system instruction
+        - Basic error handling with graceful fallbacks
         """
         cfg = cfg or self._load_config()
-        genai.configure(api_key=cfg["gemini_api_key"])
-        generation_config = {}
-        if temperature is not None:
-            generation_config["temperature"] = temperature
-        if response_mime_type:
-            generation_config["response_mime_type"] = response_mime_type
-        # Instantiate model with optional system instruction
-        if system_instruction:
-            model = genai.GenerativeModel(
-                cfg["gemini_model"], system_instruction=system_instruction
-            )
-        else:
-            model = genai.GenerativeModel(cfg["gemini_model"])
-        # Generate content
-        if generation_config:
-            response = model.generate_content(prompt, generation_config=generation_config)
-        else:
-            response = model.generate_content(prompt)
-        # Safely extract text across SDK versions
-        text = None
+        api_key = (cfg.get("openrouter_api_key") or "").strip()
+        base_url = (cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1").rstrip("/")
+        if not api_key:
+            raise RuntimeError("OpenRouter API key is not configured.")
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        # Optional best-practice headers
         try:
-            if hasattr(response, "text") and response.text:
-                text = response.text
-            elif hasattr(response, "candidates") and response.candidates:
-                # Some versions provide parts
-                parts = []
-                for c in response.candidates:
-                    if getattr(c, "content", None) and getattr(c.content, "parts", None):
-                        for p in c.content.parts:
-                            if hasattr(p, "text") and p.text:
-                                parts.append(p.text)
-                text = "\n".join(parts)
+            app_url = st.secrets.get("APP_URL", None)  # type: ignore[attr-defined]
         except Exception:
-            text = None
-        text = (text or "").strip()
-        return text
+            app_url = None
+        if app_url:
+            headers["HTTP-Referer"] = str(app_url)
+            headers["X-Title"] = "MyChart Explorer"
+
+        messages = []
+        if system_instruction:
+            messages.append({"role": "system", "content": system_instruction})
+        messages.append({"role": "user", "content": prompt})
+        body = {
+            "model": "google/gemini-2.5-flash",
+            "messages": messages,
+            "temperature": temperature if temperature is not None else 0.2,
+        }
+        if max_tokens is not None:
+            body["max_tokens"] = int(max_tokens)
+        if force_json:
+            body["response_format"] = {"type": "json_object"}
+
+        resp = requests.post(url, headers=headers, data=json.dumps(body), timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        try:
+            text = data["choices"][0]["message"]["content"]
+        except Exception:
+            text = ""
+        return (text or "").strip()
 
     def ask_question(self, question):
         """Backward-compatible single-step ask that uses the new pipeline."""

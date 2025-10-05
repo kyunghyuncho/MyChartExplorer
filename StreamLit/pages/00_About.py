@@ -18,12 +18,11 @@ with tab_overview:
 
     st.info(
         "Your data is stored locally on this server and is not shared with any third parties. "
-        "I do not intend to access or share your data without your consent. "
-        "However, please be aware that if you use cloud-based AI services "
-        "(e.g., Gemini API), your data may be transmitted to those services. "
-        "For improved privacy controls, consider using a paid Gemini API key. "
-        "See the Gemini API Terms (Unpaid Services may be used to improve Google's services): "
-        "https://ai.google.dev/gemini-api/terms",
+        "However, when you select a hosted LLM provider (OpenRouter), prompts and small previews of your data "
+        "are sent to OpenRouter using your API key and governed by their terms. We currently use only the model "
+        "google/gemini-2.5-flash via OpenRouter. As of Oct 5, 2025, Google's Gemini API policy says requests are "
+        "not used to train Google's models by default. See their terms for specifics. OpenRouter's policies also apply. "
+        "Select a local provider (Ollama) for maximum privacy.",
         icon="🔒",
     )
 

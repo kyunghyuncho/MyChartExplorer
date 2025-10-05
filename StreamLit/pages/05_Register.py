@@ -14,6 +14,11 @@ from modules.ui import render_footer
 
 st.set_page_config(page_title="Register", layout="centered")
 st.title("Register a New User (Invitation Required)")
+st.info(
+    "Beta service: Registration requires an invitation code. "
+    "To request an invitation, email kc@mychartexplorer.com.",
+    icon="🧪",
+)
 
 # Load or create authenticator config
 cfg_path = get_config_yaml_path()
@@ -179,7 +184,7 @@ else:
         password = st.text_input("Password", type="password")
         confirm = st.text_input("Confirm Password", type="password")
         code = st.text_input("Invitation Code")
-        st.caption("Don't have a code? Please reach out to Kyunghyun Cho to request an invitation.")
+        st.caption("Don't have a code? Email kc@mychartexplorer.com to request an invitation.")
         submitted = st.form_submit_button("Register")
 
     if submitted:
