@@ -89,6 +89,98 @@ class LLMService:
             schema += "\n"
         return schema
 
+    # ---------------- Prompt builders (centralized) -----------------
+    def _consult_system_instruction(self) -> str:
+        """System instruction for consult calls: compassionate, clear, and grounded.
+
+        - Use both the provided chart data and well-established medical knowledge.
+        - Be kind and supportive; avoid alarming language.
+        - Do not make diagnoses or prescribe treatments; encourage clinician follow-up when appropriate.
+        - Include a brief 'How this was derived' section explaining which records and knowledge were used.
+        - Keep responses concise and readable for patients and clinicians.
+        """
+        return (
+            "You are a compassionate clinical assistant. Be kind, clear, and supportive. "
+            "Use the provided patient data together with well-established medical knowledge. "
+            "Include a short section titled 'How this was derived' that cites key records and briefly explains your reasoning. "
+            "Avoid alarming language and avoid making diagnoses or prescribing treatments. "
+            "When appropriate, suggest discussing with the clinician."
+        )
+
+    def _build_consult_prompt(
+        self,
+        question: str,
+        patient_context: str,
+        data_str: str,
+        convo_summary: str | None = None,
+    ) -> str:
+        """Build a unified consult prompt with clear structure and expectations.
+
+        The model should distinguish between facts from the chart vs. general background, and if data is limited,
+        it should say so gently and list what extra information would help.
+        """
+        convo_block = f"\n\nConversation summary (recent):\n{convo_summary}\n" if convo_summary else ""
+        return (
+            f"Patient context:\n{patient_context}\n\n"
+            f"Relevant data from this patient's records:\n{data_str}\n"
+            f"{convo_block}"
+            f"Question: {question}\n\n"
+            "Write an answer that:\n"
+            "- Addresses the question directly and kindly.\n"
+            "- Uses both the provided records (explicitly cite key items) and well-established medical knowledge.\n"
+            "- Distinguishes clearly between what is known from the chart and general background.\n"
+            "- Includes a brief section titled 'How this was derived' explaining which records and reasoning you used.\n"
+            "- If chart data is insufficient or missing, say so gently and list what additional information would help.\n"
+            "- Keep it concise and readable for a patient and their clinician.\n"
+        )
+
+    # ---------------- Prompt builders (centralized) -----------------
+    def _consult_system_instruction(self) -> str:
+        """System instruction for all consult calls.
+
+        Goals:
+        - Compassionate, polite, and clear tone.
+        - Use both the provided chart data and well-established medical knowledge.
+        - Include a brief explanation of how the answer was derived (which records, what knowledge).
+        - Be concise but supportive; avoid alarming language; avoid definitive diagnoses or treatment directives.
+        - Encourage follow-up with the clinician when appropriate.
+        """
+        return (
+            "You are a compassionate clinical assistant. Be kind, clear, and supportive. "
+            "Use the provided patient data along with well-established medical knowledge. "
+            "Include a brief 'How this was derived' section explaining which records and knowledge informed the answer. "
+            "Be concise but not curt. Avoid alarming language and avoid making diagnoses or prescribing treatments. "
+            "When appropriate, suggest discussing with the clinician."
+        )
+
+    def _build_consult_prompt(
+        self,
+        question: str,
+        patient_context: str,
+        data_str: str,
+        convo_summary: str | None = None,
+    ) -> str:
+        """Build a unified consult prompt.
+
+        If there is limited chart data, the model should acknowledge that and still provide helpful, general background
+        while clearly distinguishing between chart-based facts and general information. It should also note what
+        additional information would help.
+        """
+        convo_block = f"\n\nConversation summary (recent):\n{convo_summary}\n" if convo_summary else ""
+        return (
+            f"Patient context:\n{patient_context}\n\n"
+            f"Relevant data from this patient's records:\n{data_str}\n"
+            f"{convo_block}\n"
+            f"Question: {question}\n\n"
+            "Write an answer that:\n"
+            "- Addresses the question directly and kindly.\n"
+            "- Uses both the provided records (explicitly cite key items) and well-established medical knowledge.\n"
+            "- Distinguishes clearly between what is known from the chart and general background.\n"
+            "- Includes a brief section titled 'How this was derived' explaining which records and reasoning you used.\n"
+            "- If chart data is insufficient or missing, say so gently and list what additional information would help.\n"
+            "- Keep it concise and readable for a patient and their clinician.\n"
+        )
+
     def _sanitize_sql(self, sql_text: str) -> str:
         """Normalize and validate LLM SQL for SQLite (read-only only).
 
@@ -283,24 +375,21 @@ class LLMService:
             pid_hint = "Filter correctly by patient when needed."
         convo_block = f"\nConversation so far (summarized):\n{history_text}\n\n" if history_text else "\n"
         prompt = f"""
-        Given the following database schema:
-        {schema}
-        {convo_block}
-        Generate a SQL query to answer the following question: "{question}"
-        
-    Output a single plain SQL statement only.
-    - No explanations
-    - No markdown
-    - No code fences
-    - Do NOT use parameters (? or :name); inline literal values only.
-    - {pid_hint}
-    Retrieval-only rules (strict):
-    - Retrieve existing fields only; do not generate or fabricate values.
-    - Do NOT create synthetic columns from constant strings (e.g., 'Immunization' AS event_type).
-    - Do NOT summarize or aggregate unless the question explicitly requests it (avoid GROUP BY/COUNT/AVG/etc.).
-    - Prefer filtering with patient_id where applicable.
-    - Use only column names present in the schema; do not rename columns unnecessarily.
-    - Avoid UNIONs that add label columns; return raw rows from the relevant table(s).
+Given the following database schema:
+{schema}
+{convo_block}
+Generate a read-only SQLite query to help answer: "{question}"
+
+Output a single plain SQL statement only:
+- No explanations, no markdown, no code fences.
+- Do NOT use parameters (? or :name); inline literal values only.
+- {pid_hint}
+
+Guidance:
+- Be broad but relevant: join across relevant tables (e.g., labs, medications, problems, vitals, notes) as needed.
+- Simple aggregations (COUNT/AVG/MIN/MAX) are allowed if they help answer the question.
+- Prefer ordering and reasonable LIMITs to surface the most relevant rows first.
+- Use only columns present in the schema; avoid fabricating column names.
         """
         # Use the configured LLM provider to generate the SQL
         cfg = self._load_config()
@@ -334,7 +423,6 @@ class LLMService:
 Given the following database schema:
 {schema}
 {convo_block}
-{convo_block} 
 
 Produce up to {max_queries} small, distinct SQLite read-only SQL queries (strings) that together help answer:
 "{question}"
@@ -343,16 +431,11 @@ Guidelines:
 - Output must be a single compact JSON array of strings, e.g., ["SELECT ...;", "SELECT ...;"]
 - Each string must be a single valid SELECT or WITH statement for SQLite.
 - No parameters (? or :name); inline literal values only. {pid_hint}
-- Prefer diversity across relevant tables (e.g., medications, immunizations, results, vitals, problems, procedures, notes).
+- Cover multiple relevant areas when helpful (e.g., labs, medications, problems, vitals, procedures, notes).
+- Simple aggregations (COUNT/AVG/MIN/MAX) are allowed if they help. Prefer ordering and a reasonable LIMIT.
 - Avoid duplicates and keep each query concise and focused.
-Retrieval-only rules (strict):
-- Retrieve existing fields only; do not generate or fabricate values.
-- Do NOT create synthetic columns from constant strings (e.g., 'Immunization' AS event_type).
-- Do NOT summarize or aggregate unless the question explicitly requests it (avoid GROUP BY/COUNT/AVG/etc.).
-- Prefer filtering with patient_id where applicable.
-- Use only column names present in the schema; do not rename columns unnecessarily.
-- Avoid UNIONs that add label columns; return raw rows from the relevant table(s).
-"""
+- Use only columns present in the schema; avoid fabricating column names.
+    """
         cfg = self._load_config()
         prov = str(cfg.get("llm_provider") or "").strip().lower()
         if prov == "ollama":
@@ -677,41 +760,26 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
         return results
 
     def consult(self, question: str, rows) -> str:
-        # Format retrieved rows
-        results_str = "\n".join([str(row) for row in rows]) if rows else "(no rows)"
-        if not rows:
-            return self._insufficient_message()
-        # Build patient context and prepend it
+        # Compact preview of retrieved rows (single set). Allow answering even if no rows, by combining general knowledge.
+        data_lines = self._preview_rows(rows) if rows else []
+        results_str = "\n".join(data_lines) if data_lines else "(no rows)"
         patient_context = self._get_patient_context_text()
-        final_prompt = f"""
-Patient context:
-{patient_context}
-
-Based on the following data from the user's medical records:
-{results_str}
-
-Answer the following question: "{question}"
-
-Grounding and rules (strict):
-- Use ONLY the information provided above from this patient's chart and patients' earlier responses, together with well-established medical knowledge.
-- If the data is insufficient to answer, say so explicitly and request the missing information needed.
-- Prefer concrete details from the chart (dates, values, meds, dosages) and avoid speculation.
-
-Output style:
-- Be concise. Use short sentences or bullet points.
-- Be kind and polite.
-"""
+        final_prompt = self._build_consult_prompt(
+            question=question,
+            patient_context=patient_context,
+            data_str=results_str,
+        )
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
         elif cfg["llm_provider"] == "openrouter":
-            sys_inst = (
-                "You are a clinical data assistant grounded strictly to the provided patient chart and user messages. "
-                "Answer only using that data; if insufficient, state that clearly and request for missing items. "
-                "Be concise and use bullet points when helpful."
-                "Be kind and polite."
+            return self._query_openrouter(
+                final_prompt,
+                cfg,
+                system_instruction=self._consult_system_instruction(),
+                max_tokens=900,
+                temperature=0.2,
             )
-            return self._query_openrouter(final_prompt, cfg, system_instruction=sys_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -724,38 +792,23 @@ Output style:
             subset_lines = self._preview_rows(rows)
             previews.append(f"-- Result set {idx} --\n" + "\n".join(subset_lines))
         results_str = "\n\n".join(previews) if previews else "(no rows)"
-        if not previews:
-            return self._insufficient_message()
         patient_context = self._get_patient_context_text()
-        final_prompt = f"""
-Patient context:
-{patient_context}
-
-Based on the following data from the user's medical records (multiple subsets):
-{results_str}
-
-Answer the following question: "{question}"
-
-Grounding and rules (strict):
-- Use ONLY the information provided above from this patient's chart and patients' earlier responses, together with well-established medical knowledge.
-- If the data is insufficient to answer, say so explicitly and request the missing information needed.
-- Prefer concrete details from the chart (dates, values, meds, dosages) and avoid speculation.
-
-Output style:
-- Be concise. Use short sentences or bullet points.
-- Be kind and polite.
-"""
+        final_prompt = self._build_consult_prompt(
+            question=question,
+            patient_context=patient_context,
+            data_str=results_str,
+        )
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
         elif cfg["llm_provider"] == "openrouter":
-            sys_inst = (
-                "You are a clinical data assistant grounded strictly to the provided patient chart and user messages. "
-                "Answer only using that data; if insufficient, state that clearly and request for missing items. "
-                "Be concise and use bullet points when helpful."
-                "Be kind and polite."
+            return self._query_openrouter(
+                final_prompt,
+                cfg,
+                system_instruction=self._consult_system_instruction(),
+                max_tokens=900,
+                temperature=0.2,
             )
-            return self._query_openrouter(final_prompt, cfg, system_instruction=sys_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
 
@@ -789,47 +842,28 @@ Output style:
             subset_lines = self._preview_rows(rows)
             previews.append(f"-- Result set {idx} --\n" + "\n".join(subset_lines))
         results_str = "\n\n".join(previews) if previews else "(no rows collected)"
-        if not previews:
-            return self._insufficient_message()
 
         # Last user question (fallback to empty)
         last_q = next((m.get("content") for m in reversed(hist_tail) if m.get("role") == "user"), "")
 
         patient_context = self._get_patient_context_text()
-        final_prompt = f"""
-Patient context:
-{patient_context}
-
-Conversation so far:
-{convo_str}
-
-Data gathered so far (across multiple queries and turns):
-{results_str}
-
-Task:
-Provide the best possible, accurate, kind, polite and concise answer to the last user question in the conversation above.
-If the data is insufficient, state clearly what is missing or cannot be concluded from the available records.
-
-Grounding and rules (strict):
-- Use ONLY the information provided above from this patient's chart and patients' earlier responses, together with well-established medical knowledge.
-- If the data is insufficient to answer, say so explicitly and request the missing information needed.
-- Prefer concrete details from the chart (dates, values, meds, dosages) and avoid speculation.
-
-Output style:
-- Be concise. Use short sentences or bullet points.
-- Be kind and polite.
-"""
+        final_prompt = self._build_consult_prompt(
+            question=last_q or "",
+            patient_context=patient_context,
+            data_str=results_str,
+            convo_summary=convo_str,
+        )
         cfg = self._load_config()
         if cfg["llm_provider"] == "ollama":
             return self._query_ollama(final_prompt, cfg)
         elif cfg["llm_provider"] == "openrouter":
-            sys_inst = (
-                "You are a clinical data assistant grounded strictly to the provided patient chart and user messages. "
-                "Answer only using that data; if insufficient, state that clearly and request for missing items. "
-                "Be concise and use bullet points when helpful."
-                "Be kind and polite."
+            return self._query_openrouter(
+                final_prompt,
+                cfg,
+                system_instruction=self._consult_system_instruction(),
+                max_tokens=900,
+                temperature=0.2,
             )
-            return self._query_openrouter(final_prompt, cfg, system_instruction=sys_inst, max_tokens=800, temperature=0.2)
         else:
             raise ValueError("Unsupported LLM provider")
 
