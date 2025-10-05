@@ -19,6 +19,11 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown("""
+    <meta name="description" content="MyChart Explorer is a tool to help you explore and understand your MyChart health records. 
+    Upload your data and use our tools to gain insights into your health.">
+""", unsafe_allow_html=True)
+
 st.info(
     "Waiting list: MyChart Explorer is currently invitation-only while we scale. "
     "If you'd like early access or an invitation, please add your name to our waiting list. "

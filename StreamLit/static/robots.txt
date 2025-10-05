@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /Admin
+Allow: /
+
+Sitemap: https://www.mychartexplorer.com/sitemap.xml
