@@ -62,17 +62,20 @@ else:
 
         # Ensure llm_provider exists in session_state before rendering widget
         if "llm_provider" not in st.session_state:
-            st.session_state["llm_provider"] = "gemini"
+            st.session_state["llm_provider"] = "openrouter"
+        # Coerce legacy provider values
+        if st.session_state.get("llm_provider") == "gemini":
+            st.session_state["llm_provider"] = "openrouter"
 
         # Determine configuration status for each backend from current session config
         ollama_ok = bool(st.session_state.get("ollama_url")) and bool(st.session_state.get("ollama_model"))
-        gemini_ok = bool(st.session_state.get("gemini_api_key")) and bool(st.session_state.get("gemini_model"))
+        openrouter_ok = bool(st.session_state.get("openrouter_api_key")) and bool(st.session_state.get("openrouter_base_url"))
 
         # If current selection isn't configured, fall back to the first configured option
         if st.session_state["llm_provider"] == "ollama" and not ollama_ok:
-            st.session_state["llm_provider"] = "gemini" if gemini_ok else "ollama"
-        if st.session_state["llm_provider"] == "gemini" and not gemini_ok:
-            st.session_state["llm_provider"] = "ollama" if ollama_ok else "gemini"
+            st.session_state["llm_provider"] = "openrouter" if openrouter_ok else "ollama"
+        if st.session_state["llm_provider"] == "openrouter" and not openrouter_ok:
+            st.session_state["llm_provider"] = "ollama" if ollama_ok else "openrouter"
 
         # Remember previous (valid) selection to restore if user clicks an unavailable option
         st.session_state["_prev_llm_provider"] = st.session_state.get("llm_provider", "ollama")
@@ -82,12 +85,12 @@ else:
             sel = st.session_state.get("llm_provider")
             # If user selected an unconfigured backend, revert and notify
             if sel == "ollama" and not ollama_ok:
-                st.session_state["llm_provider"] = st.session_state.get("_prev_llm_provider", "gemini" if gemini_ok else "ollama")
+                st.session_state["llm_provider"] = st.session_state.get("_prev_llm_provider", "openrouter" if openrouter_ok else "ollama")
                 st.warning("Ollama isn't configured yet. Set it up in Settings.")
                 return
-            if sel == "gemini" and not gemini_ok:
-                st.session_state["llm_provider"] = st.session_state.get("_prev_llm_provider", "ollama" if ollama_ok else "gemini")
-                st.warning("Gemini isn't configured yet. Add your API key in Settings.")
+            if sel == "openrouter" and not openrouter_ok:
+                st.session_state["llm_provider"] = st.session_state.get("_prev_llm_provider", "ollama" if ollama_ok else "openrouter")
+                st.warning("OpenRouter isn't configured yet. Add your API key in Settings.")
                 return
             # Persist only the valid provider; avoid mutating unrelated widget state
             save_configuration({"llm_provider": st.session_state["llm_provider"]})
@@ -96,16 +99,16 @@ else:
             st.toast(f"Backend: {st.session_state['llm_provider'].capitalize()}")
 
         # Bind widget directly to session_state key to avoid index/default clashes
-        disabled_all = not (ollama_ok or gemini_ok)
+        disabled_all = not (ollama_ok or openrouter_ok)
         st.radio(
             "Choose a backend:",
-            ("ollama", "gemini"),
+            ("ollama", "openrouter"),
             key="llm_provider",
             format_func=lambda x: (
                 "Ollama (configured)" if x == "ollama" and ollama_ok else
                 "Ollama (needs setup)" if x == "ollama" else
-                "Gemini (configured)" if x == "gemini" and gemini_ok else
-                "Gemini (needs setup)"
+                "OpenRouter (configured)" if x == "openrouter" and openrouter_ok else
+                "OpenRouter (needs setup)"
             ),
             on_change=_persist_backend_choice,
             disabled=disabled_all,

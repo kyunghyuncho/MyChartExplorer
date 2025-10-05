@@ -33,11 +33,11 @@ def _get_active_config_path() -> str:
 
 def _default_config() -> dict:
     return {
-    "llm_provider": "gemini",
+    "llm_provider": "openrouter",
     "ollama_url": "",
         "ollama_model": "gpt-oss:20b",
-        "gemini_api_key": "",
-    "gemini_model": "gemini-2.5-pro",
+        "openrouter_api_key": "",
+    "openrouter_base_url": "https://openrouter.ai/api/v1",
     # Automatically run consultation after retrieval completes
     "auto_consult": True,
     # Max allowed size for the user's SQLite DB in megabytes

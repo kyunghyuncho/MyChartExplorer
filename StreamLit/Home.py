@@ -135,6 +135,11 @@ if st.session_state.get("authentication_status"):
 
 # User is not logged in
 else:
+    # Beta/invitation notice for login screen
+    st.info(
+        "Beta service: Access is by invitation. If you need an invitation code, please email kc@mychartexplorer.com.",
+        icon="🧪",
+    )
     try:
         authenticator.login(location='main')
     except LoginError as e:

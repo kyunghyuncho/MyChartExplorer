@@ -24,7 +24,17 @@ config = load_configuration()
 with st.form("settings_form"):
     # Add a selectbox to choose the LLM provider
     st.subheader("LLM Provider")
-    llm_provider = st.selectbox("Choose your LLM provider", ["ollama", "gemini"], index=["ollama", "gemini"].index(config["llm_provider"]))
+    provider_options = ["ollama", "openrouter"]
+    # Gracefully handle legacy values (e.g., 'gemini')
+    cur = config.get("llm_provider", "ollama")
+    if cur not in provider_options:
+        # Prefer OpenRouter if an API key exists; otherwise Ollama
+        if config.get("openrouter_api_key"):
+            cur = "openrouter"
+        else:
+            cur = "ollama"
+        st.info("Migrated from legacy provider setting. Please confirm your preferred provider below.")
+    llm_provider = st.selectbox("Choose your LLM provider", provider_options, index=provider_options.index(cur))
 
     # Add fields for Ollama configuration
     st.subheader("Ollama Configuration")
@@ -36,11 +46,43 @@ with st.form("settings_form"):
     )
     ollama_model = st.text_input("Ollama Model", value=config.get("ollama_model", "gpt-oss:20b"))
 
-    # Add fields for Gemini configuration
-    st.subheader("Gemini Configuration")
-    gemini_api_key = st.text_input("Gemini API Key", type="password", value=config.get("gemini_api_key", ""))
-    gemini_model = st.text_input("Gemini Model", value=config.get("gemini_model", "gemini-2.5-pro"))
-    st.caption("Privacy reminder: consider using a paid Gemini API key for improved privacy controls. See the Gemini API Terms: https://ai.google.dev/gemini-api/terms")
+    # Add fields for OpenRouter configuration
+    st.subheader("OpenRouter Configuration")
+    openrouter_api_key = st.text_input(
+        "OpenRouter API Key",
+        type="password",
+        value=config.get("openrouter_api_key", ""),
+        help="Create an account and API key at openrouter.ai, then paste it here.",
+    )
+    openrouter_base_url = st.text_input(
+        "OpenRouter Base URL",
+        value=config.get("openrouter_base_url", "https://openrouter.ai/api/v1"),
+        help="You can keep the default unless you run through a proxy.",
+    )
+    st.caption(
+        "Hosted provider: OpenRouter. Only the model google/gemini-2.5-flash is used for now. "
+        "When this provider is selected, prompts are sent to OpenRouter using your key."
+    )
+    st.caption(
+        "Policy note (Oct 5, 2025): We currently limit hosted usage to google/gemini-2.5-flash. "
+        "According to Google's Gemini API policy, requests are not used to train Google's models by default. "
+        "See Google's terms for details (ai.google.dev/gemini-api/terms). Calls via OpenRouter are also subject to OpenRouter's policies."
+    )
+    with st.expander("How to get an OpenRouter API key"):
+        st.markdown(
+            """
+            1. Go to [openrouter.ai](https://openrouter.ai) and create an account.
+            2. (Optional) Add a payment method or load credit so requests can be billed.
+            3. Open [Settings → API Keys](https://openrouter.ai/settings/keys).
+            4. Click "Create Key" and copy the generated key.
+            5. Paste the key into the "OpenRouter API Key" field above and click Save.
+
+            Useful links:
+            - API docs: https://openrouter.ai/docs
+            - Keys page: https://openrouter.ai/settings/keys
+            """
+        )
+        st.page_link("pages/10_Instructions.py", label="See detailed setup instructions", icon="📖")
 
     # Database size limit (admin-controlled)
     st.subheader("Storage Limits")
@@ -69,7 +111,7 @@ with st.form("settings_form"):
     local_tunnel_port = st.number_input("Local Tunnel Port", value=int(config.get("local_tunnel_port", 11435)))
 
     # Create a submit button for the form
-    submitted = st.form_submit_button("Save Settings")
+    submitted = st.form_submit_button("Save Settings", type="primary")
     # If the form is submitted, save the configuration
     if submitted:
         # Create a new configuration dictionary
@@ -77,8 +119,8 @@ with st.form("settings_form"):
             "llm_provider": llm_provider,
             "ollama_url": ollama_url,
             "ollama_model": ollama_model,
-            "gemini_api_key": gemini_api_key,
-            "gemini_model": gemini_model,
+            "openrouter_api_key": openrouter_api_key,
+            "openrouter_base_url": openrouter_base_url,
             "ssh_host": ssh_host,
             "ssh_port": ssh_port,
             "ssh_user": ssh_user,

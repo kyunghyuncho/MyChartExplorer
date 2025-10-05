@@ -24,7 +24,7 @@ st.markdown(
 
     ## Privacy
     - Your data is stored locally on this server or in your configured data directory.
-    - If you enable cloud-based AI services (e.g., Gemini API), data you choose to send may be transmitted to those services and governed by their terms.
+    - If you select a hosted AI provider (OpenRouter), prompts and small previews of your data may be transmitted to OpenRouter using your API key and are governed by OpenRouter's terms. We currently limit hosted usage to the model `google/gemini-2.5-flash` via OpenRouter. As of Oct 5, 2025, Google's Gemini API policy states requests are not used to train Google's models by default; see ai.google.dev/gemini-api/terms. OpenRouter's policies also apply. If you select a local provider (Ollama), no prompts leave your environment.
     - See the About page for additional privacy guidance.
 
     ## Third-Party Components
@@ -54,7 +54,7 @@ st.markdown(
 
     6) Storage & Deletion — Your data is stored in your app workspace. You (or an admin) may delete your data at any time from the Admin/Settings tools. Deletion is permanent and cannot be undone.
 
-    7) AI/LLM Usage & Limitations — Bring‑Your‑Own‑LLM: You choose the model provider and supply any API keys (e.g., a local runner like Ollama or a hosted provider like Google Gemini). The app does not operate its own hosted model on your data. When you select a hosted provider, only the prompts/snippets shown in the UI are sent to that provider using your key. If you select a local model, no prompts leave your environment. We attempt to disable provider data retention/training where available, but hosted providers process data under their own terms. Outputs may be incomplete or incorrect and are for educational use only. Verify with your clinician. You can opt out by using a local model and/or removing your API keys.
+    7) AI/LLM Usage & Limitations — Bring‑Your‑Own‑LLM: You choose the model provider and supply any API keys (e.g., a local runner like Ollama or a hosted provider via OpenRouter). The app does not operate its own hosted model on your data. When you select a hosted provider, only the prompts/snippets shown in the UI are sent to that provider using your key. For hosted use, we currently restrict to `google/gemini-2.5-flash`. As of Oct 5, 2025, Google's Gemini API policy indicates requests are not used to train Google's models by default (see ai.google.dev/gemini-api/terms). Hosted traffic is also subject to OpenRouter's policies. If you select a local model, no prompts leave your environment. We attempt to disable provider data retention/training where available, but hosted providers process data under their own terms. Outputs may be incomplete or incorrect and are for educational use only. Verify with your clinician. You can opt out by using a local model and/or removing your API keys.
 
     8) Acceptable Use — Do not misuse the service (e.g., attempts to break security, reverse engineer, or infringe rights). We may suspend or terminate access for violations.
 

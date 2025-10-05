@@ -9,7 +9,7 @@ st.markdown("""
 This page provides instructions on how to use the MyChart Explorer application, from getting your data to setting up the AI models.
 """)
 
-tab1, tab2, tab3 = st.tabs(["Data Ingestion", "Ollama Setup (Local AI)", "Gemini API Setup (Cloud AI)"])
+tab1, tab2, tab3 = st.tabs(["Data Ingestion", "Ollama Setup (Local AI)", "OpenRouter API Setup (Hosted AI)"])
 
 with tab1:
     st.header("Step 1: Download Your MyChart Data")
@@ -116,29 +116,29 @@ with tab2:
 
 
 with tab3:
-    st.header("How to Get and Set a Gemini API Key")
+    st.header("How to Get and Set an OpenRouter API Key")
     st.markdown("""
-    Google's Gemini models are powerful and can be accessed via an API key. You can get a free key to start.
+    OpenRouter is a hosted API gateway for multiple models. For this app, we use `google/gemini-2.5-flash` via OpenRouter.
 
-    1.  **Go to Google AI Studio:** Open your web browser and navigate to [aistudio.google.com](https://aistudio.google.com).
-    2.  **Sign In:** Sign in with your Google account.
-    3.  **Get API Key:**
-        *   Once you are in the AI Studio, look for a button or link that says **"Get API key"**. This is typically found in the top-left or top-right corner of the page.
-        *   Click on it, and you will be prompted to create an API key in a new project.
-    4.  **Create and Copy Key:**
-        *   Follow the on-screen instructions to create your new API key.
-        *   Once generated, a long string of characters will be displayed. This is your API key. **Copy this key immediately and save it somewhere safe.** You will not be able to see the full key again.
-    5.  **Set the Key in the Application:**
-        *   Go to the **"Settings"** page in the MyChart Explorer application.
-        *   Paste your copied API key into the field labeled **"Gemini API Key"**.
-        *   Click **"Save Settings"**.
-    
-    The application is now configured to use the Gemini models for inference.
+    Steps:
+    1.  **Create an account:** Go to [openrouter.ai](https://openrouter.ai) and sign up.
+    2.  **(Optional) Add credit card or balance:** Ensure requests can be billed.
+    3.  **Create a key:** Visit [Settings → API Keys](https://openrouter.ai/settings/keys) and click **Create Key**.
+    4.  **Copy the key** when it's shown.
+    5.  **Set the key in the app:** Open **Settings**, find **OpenRouter Configuration**, and paste your key into **OpenRouter API Key**. Leave Base URL as `https://openrouter.ai/api/v1` unless you have a proxy.
+    6.  Click **Save Settings**.
 
-    > **Note for Power Users:** The free API key has usage limits. If you require more extensive use, you can enable billing on your Google Cloud project to access higher limits and paid tiers of the Gemini API.
+    The application is now configured to use OpenRouter for hosted inference.
+
+    Useful links:
+    - Keys page: https://openrouter.ai/settings/keys
+    - API docs: https://openrouter.ai/docs
     """)
     st.info(
-        "Privacy reminder: consider using a paid Gemini API key for improved privacy controls. See the Gemini API Terms (Unpaid Services may be used to improve Google's services): https://ai.google.dev/gemini-api/terms",
+        "Privacy reminder: when you select OpenRouter as the provider, prompts and small data previews are sent to OpenRouter using your key. "
+        "As of Oct 5, 2025, Google's Gemini API policy states requests are not used to train Google's models by default; "
+        "see ai.google.dev/gemini-api/terms. Calls via OpenRouter are also subject to OpenRouter's policies. "
+        "Select Ollama for maximum local privacy.",
         icon="🔒",
     )
     
