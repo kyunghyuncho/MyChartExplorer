@@ -1,6 +1,6 @@
 # MyChart Explorer — Streamlit App
 
-Provided by KC Explorer LLC (sole member: Kyunghyun Cho). This is an experimental platform.
+Provided by KC Explorer LLC (sole member: Kyunghyun Cho). This is an experimental platform. See https://kyunghyuncho.me/mychartexplorer-a-vibe-coding-journey-toward-accessing-my-own-medical-records/ for more details and thoughts behind this experiment.
 
 Explore and consult on your MyChart-exported health data with an AI assistant. Import CCDA/XML, store locally in SQLite, retrieve relevant records with safe, read-only SQL, and get concise answers grounded in your own chart.
 
