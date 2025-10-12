@@ -290,7 +290,12 @@ with tab_provision:
                     with colu2:
                         new_lim = st.number_input("Limit ($)", min_value=0.0, max_value=100000.0, value=float((status or {}).get("limit", get_openrouter_provisioning_default_limit())), step=1.0, key=f"newlimit-{uname}")
                     with colu3:
-                        reset_opt = st.selectbox("Reset", options=["None", "daily", "weekly", "monthly"], index=["None", "daily", "weekly", "monthly"].index((status or {}).get("limit_reset") or "None"), key=f"reset-{uname}")
+                        reset_opt = st.selectbox(
+                            "Reset",
+                            options=["None", "daily", "weekly", "monthly"],
+                            index=["None", "daily", "weekly", "monthly"].index((status or {}).get("limit_reset") or "None"),
+                            key=f"prov-reset-{uname}",
+                        )
                     with colu4:
                         inc_byok = st.toggle("Include BYOK", value=bool((status or {}).get("include_byok_in_limit", True)), key=f"incbyok-{uname}", help="When on, a user's own API key usage contributes to this limit.")
                     colb1, colb2, colb3 = st.columns([1, 1, 1])
