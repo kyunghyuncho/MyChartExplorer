@@ -139,6 +139,8 @@ with st.form("settings_form"):
             Useful links:
             - API docs: https://openrouter.ai/docs
             - Keys page: https://openrouter.ai/settings/keys
+            
+            If you don't have an OpenRouter key yet, you can request a temporary API key by emailing kc@mychartexplorer.com. We'll review requests and may issue a limited key for evaluation.
             """
         )
         st.page_link("pages/10_Instructions.py", label="See detailed setup instructions", icon="📖")

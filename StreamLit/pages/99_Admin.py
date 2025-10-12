@@ -49,6 +49,7 @@ from modules.provisioning import (
     ProvisioningError,
 )
 from modules.admin import get_user_provisioned_openrouter
+from modules.audit import search_logs, read_log_lines, get_log_file_bytes
 
 
 st.set_page_config(page_title="Admin", layout="wide")
@@ -64,7 +65,7 @@ if not current_user or not is_superuser(current_user):
 st.success(f"Signed in as {st.session_state.get('name')} (superuser)")
 
 # Tabs
-tab_settings, tab_users, tab_provision, tab_invites = st.tabs(["Settings", "Users", "Provisioning", "Invitations"])
+tab_settings, tab_users, tab_provision, tab_logs, tab_invites = st.tabs(["Settings", "Users", "Provisioning", "Logs", "Invitations"])
 
 with tab_settings:
     st.subheader("LLM Preview Settings")
@@ -211,6 +212,11 @@ with tab_provision:
         set_openrouter_provisioning_default_limit(float(default_limit))
         set_openrouter_provisioning_limit_reset(None if limit_reset == "None" else limit_reset)
         st.success("Provisioning settings saved.")
+        try:
+            from modules.audit import log_event
+            log_event(actor=current_user, action="save_provisioning_settings", subject=None, meta={"default_limit": float(default_limit), "reset": (None if limit_reset == "None" else limit_reset)})
+        except Exception:
+            pass
 
     st.markdown("---")
     st.subheader("Manage User Keys")
@@ -245,6 +251,11 @@ with tab_provision:
                                     safe = replace_user_key(uname, display_name=data.get("name") or uname, limit_usd=float(custom_limit))
                                     st.success("Key replaced.")
                                     st.json(safe)
+                                    try:
+                                        from modules.audit import log_event
+                                        log_event(actor=current_user, action="replace_key", subject=uname, meta={"limit": float(custom_limit)})
+                                    except Exception:
+                                        pass
                                 except ProvisioningError as e:
                                     st.error(str(e))
                                 except Exception as e:
@@ -257,10 +268,33 @@ with tab_provision:
                                 safe = issue_key_to_user(uname, display_name=data.get("name") or uname, limit_usd=float(custom_limit))
                                 st.success("Key issued.")
                                 st.json(safe)
+                                try:
+                                    from modules.audit import log_event
+                                    log_event(actor=current_user, action="issue_key", subject=uname, meta={"limit": float(custom_limit)})
+                                except Exception:
+                                    pass
                             except ProvisioningError as e:
                                 st.error(str(e))
                             except Exception as e:
                                 st.error(f"Failed to issue: {e}")
+
+with tab_logs:
+    st.subheader("Audit Logs")
+    st.caption("View recent audit events. Search is simple substring match across recent lines.")
+    col_l1, col_l2 = st.columns([2, 1])
+    with col_l1:
+        q = st.text_input("Search logs", placeholder="actor:alice action:issue_key or free text…")
+    with col_l2:
+        max_lines = st.number_input("Max lines", min_value=100, max_value=10000, value=2000, step=100)
+    if q:
+        lines = search_logs(q, limit=int(max_lines))
+    else:
+        lines = read_log_lines(limit=int(max_lines))
+    if not lines:
+        st.info("No log entries yet.")
+    else:
+        st.code("\n".join(lines), language="json")
+        st.download_button("Download current log", data=get_log_file_bytes(), file_name="app_audit.log", mime="text/plain")
 
 with tab_users:
     st.subheader("Users")
@@ -295,12 +329,22 @@ with tab_users:
                     if st.button("Apply Role", key=f"apply-su-{uname}"):
                         set_superuser(uname, make_su)
                         st.success("Role updated.")
+                        try:
+                            from modules.audit import log_event
+                            log_event(actor=current_user, action="set_superuser", subject=uname, meta={"value": bool(make_su)})
+                        except Exception:
+                            pass
                 with col3:
                     if st.button("Reset Password", key=f"reset-{uname}"):
                         try:
                             temp = reset_password(uname)
                             st.code(temp, language=None)
                             st.info("Share this temporary password securely with the user. They should change it after login.")
+                            try:
+                                from modules.audit import log_event
+                                log_event(actor=current_user, action="reset_password", subject=uname)
+                            except Exception:
+                                pass
                         except Exception as e:
                             st.error(str(e))
                 with col4:
@@ -323,6 +367,11 @@ with tab_users:
                                 mime="application/zip",
                                 key=f"dl-{uname}"
                             )
+                            try:
+                                from modules.audit import log_event
+                                log_event(actor=current_user, action="export_user_zip", subject=uname, meta={"mode": mode, "include_key": bool(include_key)})
+                            except Exception:
+                                pass
                         except Exception as e:
                             st.error(str(e))
                 with col5:
@@ -335,6 +384,11 @@ with tab_users:
                                 try:
                                     delete_user_data(uname)
                                     st.warning("User data deleted (account retained).")
+                                    try:
+                                        from modules.audit import log_event
+                                        log_event(actor=current_user, action="delete_user_data", subject=uname)
+                                    except Exception:
+                                        pass
                                 except Exception as e:
                                     st.error(str(e))
                             else:
@@ -370,6 +424,11 @@ with tab_users:
                                             st.session_state["confirm_delete_user"] = None
                                             st.session_state["confirm_delete_scope"] = None
                                             st.rerun()
+                                            try:
+                                                from modules.audit import log_event
+                                                log_event(actor=current_user, action="delete_user_account", subject=uname)
+                                            except Exception:
+                                                pass
                                         except Exception as e:
                                             st.error(str(e))
                                     else:
@@ -391,6 +450,11 @@ with tab_invites:
         try:
             rec, msg = invite_user(email, inviter_name=st.session_state.get("name"), app_url=app_url)
             st.success(msg)
+            try:
+                from modules.audit import log_event
+                log_event(actor=current_user, action="invite_user", subject=email)
+            except Exception:
+                pass
             with st.expander("Invitation Details"):
                 st.write({k: v for k, v in rec.items() if k != 'code'})
                 st.code(rec.get("code", ""), language=None)
@@ -417,12 +481,22 @@ with tab_invites:
             if colx1.button("Delete", key=f"del-inv-{it.get('code')}"):
                 if delete_invitation(it.get("code", "")):
                     st.warning("Invitation deleted.")
+                    try:
+                        from modules.audit import log_event
+                        log_event(actor=current_user, action="delete_invitation", subject=str(it.get("email")))
+                    except Exception:
+                        pass
                 else:
                     st.error("Failed to delete.")
             if colx2.button("Resend Email", key=f"resend-inv-{it.get('code')}"):
                 ok, msg = send_invitation_email(it.get("email", ""), it.get("code", ""), inviter_name=st.session_state.get("name"))
                 if ok:
                     st.success(msg)
+                    try:
+                        from modules.audit import log_event
+                        log_event(actor=current_user, action="resend_invitation", subject=str(it.get("email")))
+                    except Exception:
+                        pass
                 else:
                     st.error(msg)
 

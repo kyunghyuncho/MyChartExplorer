@@ -90,7 +90,7 @@ else:
                 return
             if sel == "openrouter" and not openrouter_ok:
                 st.session_state["llm_provider"] = st.session_state.get("_prev_llm_provider", "ollama" if ollama_ok else "openrouter")
-                st.warning("OpenRouter isn't configured yet. Add your API key in Settings.")
+                st.warning("OpenRouter isn't configured yet. Add your API key in Settings, or request a temporary API key by emailing kc@mychartexplorer.com.")
                 return
             # Persist only the valid provider; avoid mutating unrelated widget state
             save_configuration({"llm_provider": st.session_state["llm_provider"]})
