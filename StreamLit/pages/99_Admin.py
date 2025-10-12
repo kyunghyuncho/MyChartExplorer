@@ -201,7 +201,7 @@ with tab_provision:
     prov_key = st.text_input("Provisioning API Key", type="password", value=get_openrouter_provisioning_key(), help="Create a Provisioning API key in OpenRouter and paste it here.")
     colp1, colp2 = st.columns([1, 1])
     with colp1:
-        default_limit = st.number_input("Default credit limit (USD)", min_value=0.0, max_value=10000.0, value=float(get_openrouter_provisioning_default_limit()), step=1.0)
+        default_limit = st.number_input("Default credit limit (USD)", min_value=0.0, max_value=10.0, value=float(get_openrouter_provisioning_default_limit()), step=1.0)
     with colp2:
         reset_options = ["None", "daily", "weekly", "monthly"]
         current_reset = get_openrouter_provisioning_limit_reset() or "None"
