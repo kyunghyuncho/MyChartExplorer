@@ -14,6 +14,7 @@ from modules.admin import is_superuser, export_user_zip
 from modules.ssh_tunnel import start_ssh_tunnel, stop_ssh_tunnel, get_tunnel_status
 from modules.auth import check_auth
 from modules.paths import get_conversations_dir
+from modules.admin import get_user_provisioned_openrouter
 
 # Check user authentication
 check_auth()
@@ -78,21 +79,39 @@ with st.form("settings_form"):
 
     # Add fields for Ollama configuration
     st.subheader("Ollama Configuration")
+    
+    # Get the current tunnel status
+    tunnel_status = get_tunnel_status()
+    is_tunnel_active = tunnel_status.get("active", False)
+    
+    # Determine the value and disabled state of the Ollama URL input
+    ollama_url_value = tunnel_status.get("ollama_url", config.get("ollama_url", "http://localhost:11434"))
+    ollama_url_disabled = is_tunnel_active
+    
     ollama_url = st.text_input(
         "Ollama URL",
-        value=config["ollama_url"],
+        value=ollama_url_value,
         placeholder="http://localhost:11434",
-        help="If you run a local Ollama instance, it typically listens on http://localhost:11434. Leave blank to use that default.",
+        help="If an SSH tunnel is active, this will be the tunnel's local address.",
+        disabled=ollama_url_disabled,
     )
     ollama_model = st.text_input("Ollama Model", value=config.get("ollama_model", "gpt-oss:20b"))
 
     # Add fields for OpenRouter configuration
     st.subheader("OpenRouter Configuration")
+    # If admin has provisioned a key for this user, do not show or allow editing the API key here
+    provisioned = None
+    try:
+        provisioned = get_user_provisioned_openrouter(st.session_state.get("username"))
+    except Exception:
+        provisioned = None
+    api_key_placeholder = "(managed by admin)" if provisioned else config.get("openrouter_api_key", "")
     openrouter_api_key = st.text_input(
         "OpenRouter API Key",
         type="password",
-        value=config.get("openrouter_api_key", ""),
+        value=api_key_placeholder,
         help="Create an account and API key at openrouter.ai, then paste it here.",
+        disabled=bool(provisioned),
     )
     openrouter_base_url = st.text_input(
         "OpenRouter Base URL",
@@ -148,7 +167,6 @@ with st.form("settings_form"):
     ssh_private_key = st.text_input("SSH Private Key (path)", value=config.get("ssh_private_key", ""))
     ssh_passphrase = st.text_input("SSH Private Key Passphrase", type="password", value=config.get("ssh_passphrase", ""))
     remote_ollama_url = st.text_input("Remote Ollama URL", value=config["remote_ollama_url"])
-    local_tunnel_port = st.number_input("Local Tunnel Port", value=int(config.get("local_tunnel_port", 11435)))
 
     # Create a submit button for the form
     submitted = st.form_submit_button("Save Settings", type="primary")
@@ -159,7 +177,8 @@ with st.form("settings_form"):
             "llm_provider": llm_provider,
             "ollama_url": ollama_url,
             "ollama_model": ollama_model,
-            "openrouter_api_key": openrouter_api_key,
+            # If admin manages a key, do not overwrite user's config value; keep whatever is on disk
+            "openrouter_api_key": (config.get("openrouter_api_key") if provisioned else openrouter_api_key),
             "openrouter_base_url": openrouter_base_url,
             "ssh_host": ssh_host,
             "ssh_port": ssh_port,
@@ -168,7 +187,6 @@ with st.form("settings_form"):
             "ssh_private_key": ssh_private_key,
             "ssh_passphrase": ssh_passphrase,
             "remote_ollama_url": remote_ollama_url,
-            "local_tunnel_port": int(local_tunnel_port),
         }
         # Save the new configuration to disk
         save_configuration(new_config)
@@ -181,8 +199,10 @@ with st.form("settings_form"):
         # Read raw file (no session overlay) to verify persistence
         disk_after = _read_file_config() or {}
         mismatches = []
-        if (openrouter_api_key or "") != (disk_after.get("openrouter_api_key") or ""):
-            mismatches.append("OpenRouter API Key")
+        # When admin manages the key, skip mismatch check for API key field
+        if not provisioned:
+            if (openrouter_api_key or "") != (disk_after.get("openrouter_api_key") or ""):
+                mismatches.append("OpenRouter API Key")
         if (openrouter_base_url or "") != (disk_after.get("openrouter_base_url") or ""):
             mismatches.append("OpenRouter Base URL")
         if (ollama_url or "") != (disk_after.get("ollama_url") or ""):

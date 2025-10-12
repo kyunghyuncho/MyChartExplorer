@@ -161,6 +161,55 @@ def get_user_db_key(username: str) -> str | None:
     return _get_user_key(username)
 
 
+# -------- Provisioned OpenRouter API keys (admin-managed, hidden from users) --------
+def get_user_provisioned_openrouter(username: str) -> Dict[str, Any] | None:
+    """Return stored provisioned OpenRouter key metadata for the user, or None if absent.
+
+    Structure (example):
+    {
+        "key": "sk-or-...",            # full key string (secret)
+        "hash": "abc123",              # OpenRouter key hash for management
+        "name": "MyChart <user>",
+        "label": "string",
+        "limit": 5.0,
+        "limit_remaining": 4.2,
+        "limit_reset": null|"daily"|"weekly"|"monthly",
+        "include_byok_in_limit": True,
+        "disabled": False,
+        "issued_at": "2025-10-12T12:34:56Z",
+        "updated_at": "2025-10-12T12:34:56Z",
+    }
+    """
+    cfg = _load_config()
+    users = ((cfg.get("credentials") or {}).get("usernames") or {})
+    rec = (users.get(username) or {}).get("provisioned_openrouter")
+    if isinstance(rec, dict):
+        return rec
+    return None
+
+
+def set_user_provisioned_openrouter(username: str, record: Dict[str, Any] | None) -> None:
+    """Create/update/delete the provisioned OpenRouter key record for a user in config.yaml.
+
+    Pass None to remove the record.
+    """
+    cfg = _load_config()
+    users = cfg.setdefault("credentials", {}).setdefault("usernames", {})
+    user = users.setdefault(username, {})
+    if record is None:
+        user.pop("provisioned_openrouter", None)
+    else:
+        # Do not allow arbitrary object types
+        safe = dict(record or {})
+        user["provisioned_openrouter"] = safe
+    _save_config(cfg)
+
+
+def get_user_provisioned_openrouter_key(username: str) -> str:
+    rec = get_user_provisioned_openrouter(username) or {}
+    return str(rec.get("key", ""))
+
+
 def _fernet_from_key(key: str):
     from cryptography.fernet import Fernet
     import base64

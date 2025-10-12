@@ -14,6 +14,7 @@ from .config import (
     get_notes_snippet_max_chars,
     get_notes_summarization_enabled,
 )
+from .admin import get_user_provisioned_openrouter_key
 from datetime import date, datetime
 
 class LLMService:
@@ -1114,6 +1115,14 @@ It must be valid SQL, no markdown, no comments, no code fences. Do NOT use param
         """
         cfg = cfg or self._load_config()
         api_key = (cfg.get("openrouter_api_key") or "").strip()
+        # If user did not set a key, try admin-provisioned key for this user
+        if not api_key:
+            try:
+                uname = st.session_state.get("username")
+                if uname:
+                    api_key = (get_user_provisioned_openrouter_key(uname) or "").strip()
+            except Exception:
+                pass
         base_url = (cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1").rstrip("/")
         if not api_key:
             raise RuntimeError("OpenRouter API key is not configured.")

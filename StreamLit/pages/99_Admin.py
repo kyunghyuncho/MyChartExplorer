@@ -33,6 +33,22 @@ from modules.invitations import (
     set_sendgrid_api_key,
     send_invitation_email,
 )
+from modules.config import (
+    get_openrouter_provisioning_key,
+    set_openrouter_provisioning_key,
+    get_openrouter_provisioning_default_limit,
+    set_openrouter_provisioning_default_limit,
+    get_openrouter_provisioning_limit_reset,
+    set_openrouter_provisioning_limit_reset,
+)
+from modules.provisioning import (
+    issue_key_to_user,
+    replace_user_key,
+    refresh_user_key_status,
+    can_replace_user_key,
+    ProvisioningError,
+)
+from modules.admin import get_user_provisioned_openrouter
 
 
 st.set_page_config(page_title="Admin", layout="wide")
@@ -48,7 +64,7 @@ if not current_user or not is_superuser(current_user):
 st.success(f"Signed in as {st.session_state.get('name')} (superuser)")
 
 # Tabs
-tab_settings, tab_users, tab_invites = st.tabs(["Settings", "Users", "Invitations"])
+tab_settings, tab_users, tab_provision, tab_invites = st.tabs(["Settings", "Users", "Provisioning", "Invitations"])
 
 with tab_settings:
     st.subheader("LLM Preview Settings")
@@ -176,6 +192,75 @@ with tab_settings:
         set_notes_snippet_max_chars(int(snip_max))
         set_notes_summarization_enabled(bool(summarize))
         st.success("Notes settings saved.")
+
+with tab_provision:
+    st.subheader("OpenRouter Provisioning")
+    st.caption("Issue per-user OpenRouter API keys with a credit limit. Keys are stored server-side and hidden from users.")
+
+    # Admin provisioning settings
+    prov_key = st.text_input("Provisioning API Key", type="password", value=get_openrouter_provisioning_key(), help="Create a Provisioning API key in OpenRouter and paste it here.")
+    colp1, colp2 = st.columns([1, 1])
+    with colp1:
+        default_limit = st.number_input("Default credit limit (USD)", min_value=0.0, max_value=10000.0, value=float(get_openrouter_provisioning_default_limit()), step=1.0)
+    with colp2:
+        reset_options = ["None", "daily", "weekly", "monthly"]
+        current_reset = get_openrouter_provisioning_limit_reset() or "None"
+        limit_reset = st.selectbox("Limit reset cadence", reset_options, index=reset_options.index(current_reset))
+    if st.button("Save Provisioning Settings"):
+        set_openrouter_provisioning_key(prov_key)
+        set_openrouter_provisioning_default_limit(float(default_limit))
+        set_openrouter_provisioning_limit_reset(None if limit_reset == "None" else limit_reset)
+        st.success("Provisioning settings saved.")
+
+    st.markdown("---")
+    st.subheader("Manage User Keys")
+    search_q2 = st.text_input("Find user", placeholder="Search by username, name, email", key="prov_search")
+    rows2 = search_users(search_q2) if search_q2 else list_users()
+    if not rows2:
+        st.info("No users match your search.")
+    else:
+        for uname, data in rows2[:50]:
+            rec = get_user_provisioned_openrouter(uname) or {}
+            with st.expander(f"{uname}"):
+                # Show status without exposing secrets
+                status = refresh_user_key_status(uname) if st.button("Refresh", key=f"refresh-{uname}") else {k: v for k, v in rec.items() if k != "key"}
+                if status:
+                    col_s1, col_s2, col_s3 = st.columns(3)
+                    col_s1.metric("Limit", f"${status.get('limit', 0):,.2f}")
+                    col_s2.metric("Remaining", f"${status.get('limit_remaining', 0):,.2f}")
+                    col_s3.write({k: status.get(k) for k in ("limit_reset", "disabled", "updated_at")})
+                else:
+                    st.info("No key issued yet for this user.")
+
+                col_a1, col_a2 = st.columns([1, 2])
+                with col_a1:
+                    custom_limit = st.number_input("New key limit ($)", min_value=0.0, max_value=10000.0, value=float(get_openrouter_provisioning_default_limit()), step=1.0, key=f"limit-{uname}")
+                with col_a2:
+                    allowed, reason = can_replace_user_key(uname)
+                    if rec:
+                        st.caption("Replace is only allowed when remaining ≤ $0.01, or if no key exists.")
+                        if allowed:
+                            if st.button("Replace Key", key=f"replace-{uname}"):
+                                try:
+                                    safe = replace_user_key(uname, display_name=data.get("name") or uname, limit_usd=float(custom_limit))
+                                    st.success("Key replaced.")
+                                    st.json(safe)
+                                except ProvisioningError as e:
+                                    st.error(str(e))
+                                except Exception as e:
+                                    st.error(f"Failed to replace: {e}")
+                        else:
+                            st.warning(reason or "Replacement not allowed.")
+                    else:
+                        if st.button("Issue Key", key=f"issue-{uname}"):
+                            try:
+                                safe = issue_key_to_user(uname, display_name=data.get("name") or uname, limit_usd=float(custom_limit))
+                                st.success("Key issued.")
+                                st.json(safe)
+                            except ProvisioningError as e:
+                                st.error(str(e))
+                            except Exception as e:
+                                st.error(f"Failed to issue: {e}")
 
 with tab_users:
     st.subheader("Users")
