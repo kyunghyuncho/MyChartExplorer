@@ -90,6 +90,79 @@ def delete_key(hash_value: str) -> bool:
         return True
 
 
+def update_key(hash_value: str, name: Optional[str] = None, disabled: Optional[bool] = None,
+               limit: Optional[float] = None, limit_reset: Optional[str | None] = None,
+               include_byok_in_limit: Optional[bool] = None) -> Dict[str, Any]:
+    """PATCH update to an API key. Returns updated data."""
+    url = f"{BASE_URL}/keys/{hash_value}"
+    headers = _auth_header()
+    payload: Dict[str, Any] = {}
+    if name is not None:
+        payload["name"] = name
+    if disabled is not None:
+        payload["disabled"] = bool(disabled)
+    # limit can be float or null
+    if limit is not None:
+        payload["limit"] = float(limit)
+    if limit_reset is not None:
+        if limit_reset in ("daily", "weekly", "monthly"):
+            payload["limit_reset"] = limit_reset
+        else:
+            payload["limit_reset"] = None
+    if include_byok_in_limit is not None:
+        payload["include_byok_in_limit"] = bool(include_byok_in_limit)
+    resp = requests.patch(url, headers=headers, json=payload, timeout=30)
+    if resp.status_code >= 400:
+        raise ProvisioningError(f"Failed to update key: {resp.status_code} {resp.text}")
+    return (resp.json() or {}).get("data", {})
+
+
+def disable_key(hash_value: str, disabled: bool = True) -> Dict[str, Any]:
+    return update_key(hash_value, disabled=disabled)
+
+
+def remove_user_key(username: str) -> bool:
+    """Delete user's provisioned key at OpenRouter (if known) and remove local record."""
+    rec = get_user_provisioned_openrouter(username)
+    if not rec:
+        return True
+    ok = True
+    if rec.get("hash"):
+        try:
+            ok = delete_key(rec.get("hash"))
+        except Exception:
+            ok = False
+    # Remove local record regardless to avoid dangling secret
+    set_user_provisioned_openrouter(username, None)
+    return ok
+
+
+def update_user_key(username: str, *, new_limit: Optional[float] = None,
+                    new_limit_reset: Optional[str | None] = None,
+                    include_byok_in_limit: Optional[bool] = None,
+                    disabled: Optional[bool] = None,
+                    new_name: Optional[str] = None) -> Dict[str, Any]:
+    """Update a user's provisioned key via Provisioning API and refresh stored metadata."""
+    rec = get_user_provisioned_openrouter(username)
+    if not rec or not rec.get("hash"):
+        raise ProvisioningError("No provisioned key found for user.")
+    updated = update_key(
+        rec.get("hash"),
+        name=new_name,
+        disabled=disabled,
+        limit=new_limit,
+        limit_reset=new_limit_reset,
+        include_byok_in_limit=include_byok_in_limit,
+    )
+    # Merge updates into stored record
+    current = get_user_provisioned_openrouter(username) or {}
+    for k in essential_fields:
+        if k in updated:
+            current[k] = updated[k]
+    set_user_provisioned_openrouter(username, current)
+    return {k: v for k, v in current.items() if k != "key"}
+
+
 # -------- High-level flows --------
 
 essential_fields = [

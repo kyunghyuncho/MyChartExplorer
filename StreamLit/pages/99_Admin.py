@@ -46,6 +46,8 @@ from modules.provisioning import (
     replace_user_key,
     refresh_user_key_status,
     can_replace_user_key,
+    update_user_key,
+    remove_user_key,
     ProvisioningError,
 )
 from modules.admin import get_user_provisioned_openrouter
@@ -277,6 +279,77 @@ with tab_provision:
                                 st.error(str(e))
                             except Exception as e:
                                 st.error(f"Failed to issue: {e}")
+
+                # Update / Disable / Delete controls (only if key exists)
+                if rec:
+                    st.markdown("---")
+                    st.markdown("##### Update Key Settings")
+                    colu1, colu2, colu3, colu4 = st.columns([2, 1, 1, 1])
+                    with colu1:
+                        key_name = st.text_input("Key name (optional)", value=str((status or {}).get("name") or (status or {}).get("label") or f"MyChart - {uname}"), key=f"keyname-{uname}")
+                    with colu2:
+                        new_lim = st.number_input("Limit ($)", min_value=0.0, max_value=100000.0, value=float((status or {}).get("limit", get_openrouter_provisioning_default_limit())), step=1.0, key=f"newlimit-{uname}")
+                    with colu3:
+                        reset_opt = st.selectbox("Reset", options=["None", "daily", "weekly", "monthly"], index=["None", "daily", "weekly", "monthly"].index((status or {}).get("limit_reset") or "None"), key=f"reset-{uname}")
+                    with colu4:
+                        inc_byok = st.toggle("Include BYOK", value=bool((status or {}).get("include_byok_in_limit", True)), key=f"incbyok-{uname}", help="When on, a user's own API key usage contributes to this limit.")
+                    colb1, colb2, colb3 = st.columns([1, 1, 1])
+                    with colb1:
+                        if st.button("Save Updates", key=f"saveupd-{uname}"):
+                            try:
+                                safe = update_user_key(
+                                    uname,
+                                    new_limit=float(new_lim),
+                                    new_limit_reset=None if reset_opt == "None" else reset_opt,
+                                    include_byok_in_limit=bool(inc_byok),
+                                    new_name=key_name.strip() or None,
+                                )
+                                st.success("Key updated.")
+                                st.json(safe)
+                                try:
+                                    from modules.audit import log_event
+                                    log_event(actor=current_user, action="update_key", subject=uname, meta={"limit": float(new_lim), "reset": (None if reset_opt == "None" else reset_opt), "include_byok": bool(inc_byok)})
+                                except Exception:
+                                    pass
+                            except ProvisioningError as e:
+                                st.error(str(e))
+                            except Exception as e:
+                                st.error(f"Failed to update: {e}")
+                    with colb2:
+                        is_disabled = bool((status or {}).get("disabled", False))
+                        label = "Enable Key" if is_disabled else "Disable Key"
+                        if st.button(label, key=f"toggle-{uname}"):
+                            try:
+                                safe = update_user_key(uname, disabled=not is_disabled)
+                                st.success(f"Key {'enabled' if is_disabled else 'disabled'}.")
+                                st.json(safe)
+                                try:
+                                    from modules.audit import log_event
+                                    log_event(actor=current_user, action="toggle_key", subject=uname, meta={"disabled": (not is_disabled)})
+                                except Exception:
+                                    pass
+                            except ProvisioningError as e:
+                                st.error(str(e))
+                            except Exception as e:
+                                st.error(f"Failed to toggle: {e}")
+                    with colb3:
+                        if st.button("Delete Key", key=f"delkey-{uname}"):
+                            try:
+                                ok = remove_user_key(uname)
+                                if ok:
+                                    st.warning("Key deleted and local record removed.")
+                                    try:
+                                        from modules.audit import log_event
+                                        log_event(actor=current_user, action="delete_key", subject=uname)
+                                    except Exception:
+                                        pass
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to delete key at provider; local record removed.")
+                            except ProvisioningError as e:
+                                st.error(str(e))
+                            except Exception as e:
+                                st.error(f"Failed to delete key: {e}")
 
 with tab_logs:
     st.subheader("Audit Logs")
