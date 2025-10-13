@@ -135,6 +135,10 @@ with tab3:
     - API docs: https://openrouter.ai/docs
     """)
     st.info(
+        "Don't have an OpenRouter key yet? You can request a temporary API key by emailing kc@mychartexplorer.com. We'll review requests and may issue a limited key for evaluation.",
+        icon="✉️",
+    )
+    st.info(
         "Privacy reminder: when you select OpenRouter as the provider, prompts and small data previews are sent to OpenRouter using your key. "
         "As of Oct 5, 2025, Google's Gemini API policy states requests are not used to train Google's models by default; "
         "see ai.google.dev/gemini-api/terms. Calls via OpenRouter are also subject to OpenRouter's policies. "

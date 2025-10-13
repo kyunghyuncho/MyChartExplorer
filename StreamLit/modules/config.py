@@ -167,6 +167,12 @@ def _write_json(path: str, data: dict) -> None:
     try:
         with p.open("w", encoding="utf-8") as f:
             json.dump(data or {}, f, indent=2)
+        # Best-effort: restrict permissions on config files
+        try:
+            import os as _os
+            _os.chmod(p, 0o600)
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -269,6 +275,78 @@ def set_notes_summarization_enabled(enabled: bool) -> None:
     data["notes_summarization_enabled"] = bool(enabled)
     _write_json(global_path, data)
 
+
+# -------- OpenRouter Provisioning (admin-only) --------
+def get_openrouter_provisioning_key() -> str:
+    """Return the Provisioning API key used to create/manage OpenRouter API keys.
+
+    Stored only in the global config.json (admin-controlled). Returns empty string if unset.
+    """
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    return str((data or {}).get("openrouter_provisioning_key", ""))
+
+
+def set_openrouter_provisioning_key(key: str) -> None:
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    data["openrouter_provisioning_key"] = str(key or "")
+    _write_json(global_path, data)
+
+
+def get_openrouter_provisioning_default_limit() -> float:
+    """Return default credit limit (USD) for newly provisioned user keys. Default: 5.0"""
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    try:
+        v = float((data or {}).get("openrouter_provisioning_default_limit", 5.0))
+        # Clamp to sensible bounds
+        if v < 0:
+            v = 0.0
+        if v > 10000:
+            v = 10000.0
+        return v
+    except Exception:
+        return 5.0
+
+
+def set_openrouter_provisioning_default_limit(limit_usd: float) -> None:
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    try:
+        v = float(limit_usd)
+    except Exception:
+        v = 5.0
+    if v < 0:
+        v = 0.0
+    if v > 10000:
+        v = 10000.0
+    data["openrouter_provisioning_default_limit"] = v
+    _write_json(global_path, data)
+
+
+def get_openrouter_provisioning_limit_reset() -> str | None:
+    """Return the reset cadence for limits: one of 'daily'|'weekly'|'monthly'|None.
+
+    Default: None (no auto-reset).
+    """
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    val = (data or {}).get("openrouter_provisioning_limit_reset")
+    if val in ("daily", "weekly", "monthly"):
+        return val
+    return None
+
+
+def set_openrouter_provisioning_limit_reset(reset: str | None) -> None:
+    global_path = get_global_config_json_path()
+    data = _read_json(global_path)
+    if reset in ("daily", "weekly", "monthly"):
+        data["openrouter_provisioning_limit_reset"] = reset
+    else:
+        # Remove or set None for no reset
+        data["openrouter_provisioning_limit_reset"] = None
+    _write_json(global_path, data)
 
 # -------- SMART on FHIR admin settings (admin-only) --------
 def get_fhir_admin_settings() -> dict:

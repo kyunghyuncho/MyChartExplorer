@@ -75,3 +75,12 @@ def get_invitations_json_path() -> str:
     This file holds pending/used invitation codes for registration.
     """
     return (get_data_root() / "invitations.json").as_posix()
+
+
+# -------- Audit logging paths --------
+def get_logs_dir() -> Path:
+    return _ensure_dir(get_data_root() / "logs")
+
+
+def get_audit_log_path() -> str:
+    return (get_logs_dir() / "app_audit.log").as_posix()

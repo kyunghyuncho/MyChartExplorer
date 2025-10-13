@@ -105,6 +105,7 @@ For reference during development and debugging:
   - Settings page (persist model names and other details)
 - OpenRouter
   - Set your OpenRouter API key in Settings (and optional base URL).
+  - If you don't have a key yet, you can request a temporary API key by emailing kc@mychartexplorer.com. We'll review requests and may issue a limited key for evaluation.
   - Hosted model is currently fixed to `google/gemini-2.5-flash` to ensure concise and fast replies.
 - Ollama
   - Point Ollama URL and set model name in Settings (e.g., `llama3`, `llama3.1:8b`).
@@ -122,6 +123,7 @@ Configure SSH host/user in Settings. Use the SSH Tunnel Control buttons to start
 - "Import could not be resolved" in editor: ensure you’re using the `.venv` Python in your editor. The app still runs if packages are installed in `.venv`.
 - Widget state errors: Avoid setting widget-related keys in `st.session_state`. Configuration saves only whitelist known config keys.
 - OpenRouter calls failing: confirm your API key and base URL in Settings. Ensure the hosted model `google/gemini-2.5-flash` is available to your account.
+  - If you don't have an OpenRouter key, email kc@mychartexplorer.com to request a temporary evaluation key.
 - Pandas not installed: tables fall back to text; install `pandas` for DataFrame previews.
 
 ## Tips
