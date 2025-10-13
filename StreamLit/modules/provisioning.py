@@ -84,10 +84,15 @@ def delete_key(hash_value: str) -> bool:
     if resp.status_code >= 400:
         raise ProvisioningError(f"Failed to delete key: {resp.status_code} {resp.text}")
     try:
+        # A 204 No Content response is also a success.
+        if resp.status_code == 204:
+            return True
         data = resp.json() or {}
-        return bool(data.get("data", {}).get("success", True))
+        # Default to False if 'success' key is missing.
+        return bool(data.get("data", {}).get("success", False))
     except Exception:
-        return True
+        # If JSON decoding fails, it's not a successful deletion.
+        return False
 
 
 def update_key(hash_value: str, name: Optional[str] = None, disabled: Optional[bool] = None,
