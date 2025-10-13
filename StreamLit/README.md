@@ -1,5 +1,4 @@
 # MyChart Explorer (Streamlit)
-# MyChart Explorer (Streamlit)
 
 Provided by KC Explorer LLC (sole member: Kyunghyun Cho). This is an experimental platform.
 
