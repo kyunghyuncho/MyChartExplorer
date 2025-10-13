@@ -67,37 +67,63 @@ if not current_user or not is_superuser(current_user):
 st.success(f"Signed in as {st.session_state.get('name')} (superuser)")
 
 # Tabs
-tab_settings, tab_users, tab_provision, tab_logs, tab_invites = st.tabs(["Settings", "Users", "Provisioning", "Logs", "Invitations"])
+tab_llm, tab_fhir, tab_email, tab_users, tab_provision, tab_logs, tab_invites = st.tabs(["LLM", "FHIR", "Email", "Users", "Provisioning", "Logs", "Invitations"])
 
-with tab_settings:
+with tab_llm:
     st.subheader("LLM Preview Settings")
     cur_rows, cur_budget, cur_sets = get_preview_limits_global()
     colp1, colp2, colp3 = st.columns(3)
     with colp1:
-        rows = st.number_input("Max rows per set", min_value=1, max_value=100, value=int(cur_rows))
+        rows = st.number_input("Max rows per set", min_value=1, max_value=100, value=int(cur_rows), key="llm_rows")
     with colp2:
-        budget = st.number_input("Char budget per set", min_value=500, max_value=2000000, value=int(cur_budget), step=100)
+        budget = st.number_input("Char budget per set", min_value=500, max_value=2000000, value=int(cur_budget), step=100, key="llm_budget")
     with colp3:
-        sets = st.number_input("Max sets included", min_value=1, max_value=16, value=int(cur_sets))
-    if st.button("Save Preview Settings"):
+        sets = st.number_input("Max sets included", min_value=1, max_value=16, value=int(cur_sets), key="llm_sets")
+    if st.button("Save Preview Settings", key="llm_save_preview"):
         set_preview_limits_global(rows, budget, sets)
         st.success("Preview settings saved.")
 
     st.markdown("---")
+    st.subheader("Notes Preview & Summarization")
+    coln1, coln2 = st.columns([1, 1])
+    with coln1:
+        snip_max = st.number_input(
+            "Max characters for note text",
+            min_value=100,
+            max_value=100000,
+            value=int(get_notes_snippet_max_chars()),
+            step=100,
+            help="Controls how much note content is included per row in previews sent to the LLM.",
+            key="llm_snip_max",
+        )
+    with coln2:
+        summarize = st.toggle(
+            "Summarize long notes",
+            value=bool(get_notes_summarization_enabled()),
+            help="When enabled, the app may summarize longer note excerpts to fit within preview budgets.",
+            key="llm_summarize",
+        )
+    if st.button("Save Notes Settings", key="llm_save_notes"):
+        set_notes_snippet_max_chars(int(snip_max))
+        set_notes_summarization_enabled(bool(summarize))
+        st.success("Notes settings saved.")
+
+with tab_fhir:
     st.subheader("SMART on FHIR (Admin-only)")
     cur = get_fhir_admin_settings()
     colf1, colf2 = st.columns(2)
     with colf1:
-        admin_client_id = st.text_input("Client ID (admin)", value=cur.get("client_id", ""))
-        admin_redirect = st.text_input("Redirect URI (admin)", value=cur.get("redirect_uri", ""))
+        admin_client_id = st.text_input("Client ID (admin)", value=cur.get("client_id", ""), key="fhir_client_id")
+        admin_redirect = st.text_input("Redirect URI (admin)", value=cur.get("redirect_uri", ""), key="fhir_redirect")
     with colf2:
         admin_scopes = st.text_area(
             "Scopes (space-separated)",
             value=cur.get("scopes", "launch/patient patient/*.read offline_access openid profile"),
             height=80,
             help="These scopes will be used as the default for all users and are not editable outside admin.",
+            key="fhir_scopes",
         )
-    if st.button("Save SMART Admin Settings"):
+    if st.button("Save SMART Admin Settings", key="fhir_save_admin"):
         set_fhir_admin_settings(admin_client_id, admin_redirect, admin_scopes)
         st.success("SMART admin settings saved.")
 
@@ -113,16 +139,16 @@ with tab_settings:
         for it in sites:
             with st.expander(f"{it.get('name')} — {it.get('base_url')}"):
                 colh1, colh2 = st.columns([1, 1])
-                if colh1.button("Remove", key=f"remove-auth-site-{it.get('base_url')}"):
+                if colh1.button("Remove", key=f"fhir-remove-auth-site-{it.get('base_url')}"):
                     remove_authorized_fhir_site(it.get('base_url',''))
                     st.success("Removed.")
     st.markdown("#### Add authorized hospital")
     coln1, coln2 = st.columns([2, 3])
     with coln1:
-        new_name = st.text_input("Organization name", key="new_auth_site_name")
+        new_name = st.text_input("Organization name", key="fhir_new_auth_site_name")
     with coln2:
-        new_base = st.text_input("FHIR Base URL", key="new_auth_site_base")
-    if st.button("Add to authorized list"):
+        new_base = st.text_input("FHIR Base URL", key="fhir_new_auth_site_base")
+    if st.button("Add to authorized list", key="fhir_add_auth_site"):
         if not new_base:
             st.error("Please provide a FHIR Base URL.")
         else:
@@ -132,7 +158,7 @@ with tab_settings:
     st.markdown("---")
     st.subheader("Epic Hospital Directory (Open Endpoints)")
     st.caption("Browse Epic's public directory to find hospital FHIR bases, then add the ones you've authorized.")
-    epic_q = st.text_input("Search organization or URL", key="admin_epic_query", value="")
+    epic_q = st.text_input("Search organization or URL", key="fhir_admin_epic_query", value="")
     # Auto-load directory on first open in admin
     if not st.session_state.get('admin_epic_directory'):
         try:
@@ -148,7 +174,7 @@ with tab_settings:
         items_f = [it for it in items if (q in (it.get('name','').lower()) or q in (it.get('base_url','').lower()))] if q else items
         labels = [f"{it.get('name','?')} — {it.get('base_url','')}" for it in items_f[:500]]
         if labels:
-            sel = st.selectbox("Select a hospital to add", options=["—"] + labels, index=0, key="admin_sel_epic_json")
+            sel = st.selectbox("Select a hospital to add", options=["—"] + labels, index=0, key="fhir_admin_sel_epic_json")
             if sel and sel != "—":
                 idx = labels.index(sel)
                 ent = items_f[idx]
@@ -160,41 +186,20 @@ with tab_settings:
                         "base_url": ent.get('base_url'),
                     })
                 with colad2:
-                    if st.button("Add to authorized", key=f"btn_add_auth_{idx}"):
+                    if st.button("Add to authorized", key=f"fhir_btn_add_auth_{idx}"):
                         add_authorized_fhir_site(ent.get('name','Healthcare Organization'), ent.get('base_url',''))
                         st.success("Added to authorized list.")
         else:
             st.info("No results for your search.")
     else:
         st.info("Epic directory not available.")
+
+with tab_email:
     st.subheader("Email (SendGrid)")
-    sg = st.text_input("SendGrid API Key", type="password", value=get_sendgrid_api_key())
-    if st.button("Save SendGrid Key"):
+    sg = st.text_input("SendGrid API Key", type="password", value=get_sendgrid_api_key(), key="email_sendgrid_key")
+    if st.button("Save SendGrid Key", key="email_save_sendgrid"):
         set_sendgrid_api_key(sg)
         st.success("SendGrid API key saved.")
-
-    st.markdown("---")
-    st.subheader("Notes Preview & Summarization")
-    coln1, coln2 = st.columns([1, 1])
-    with coln1:
-        snip_max = st.number_input(
-            "Max characters for note text",
-            min_value=100,
-            max_value=100000,
-            value=int(get_notes_snippet_max_chars()),
-            step=100,
-            help="Controls how much note content is included per row in previews sent to the LLM.",
-        )
-    with coln2:
-        summarize = st.toggle(
-            "Summarize long notes",
-            value=bool(get_notes_summarization_enabled()),
-            help="When enabled, the app may summarize longer note excerpts to fit within preview budgets.",
-        )
-    if st.button("Save Notes Settings"):
-        set_notes_snippet_max_chars(int(snip_max))
-        set_notes_summarization_enabled(bool(summarize))
-        st.success("Notes settings saved.")
 
 with tab_provision:
     st.subheader("OpenRouter Provisioning")
