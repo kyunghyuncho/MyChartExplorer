@@ -11,7 +11,7 @@ from modules.config import _read_file_config  # to verify writes without session
 from modules.config import _read_json  # to read global config for migration
 from modules.paths import get_global_config_json_path
 from modules.admin import is_superuser, export_user_zip
-from modules.ssh_tunnel import start_ssh_tunnel, start_ssh_tunnel_sync, stop_ssh_tunnel, get_tunnel_status
+from modules.ssh_tunnel import start_ssh_tunnel_sync, stop_ssh_tunnel, get_tunnel_status
 from modules.auth import check_auth
 from modules.paths import get_conversations_dir
 from modules.admin import get_user_provisioned_openrouter
