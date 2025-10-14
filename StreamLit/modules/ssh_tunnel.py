@@ -212,8 +212,9 @@ def start_ssh_tunnel_sync(config, timeout_seconds: float = 10.0):
         # Verify connectivity quickly
         if not _tcp_check("127.0.0.1", int(bound_port), timeout=1.5):
             st.session_state['ssh_tunnel_error'] = "Tunnel established but local port not reachable (connectivity test failed)."
-    except Exception:
-        pass
+    except Exception as e:
+        st.session_state['ssh_tunnel_error'] = f"Tunnel started, but failed during post-start verification: {e}"
+
     return True
 
 def stop_ssh_tunnel():
