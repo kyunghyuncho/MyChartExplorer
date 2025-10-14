@@ -167,6 +167,16 @@ def start_ssh_tunnel_sync(config, timeout_seconds: float = 10.0):
         finally:
             started_event.set()
 
+    def _cleanup_failure(msg: str):
+        """Set failure state and best-effort stop/clear the tunnel server."""
+        st.session_state['ssh_tunnel_active'] = False
+        st.session_state['ssh_tunnel_error'] = msg
+        # Best-effort stop and clear via common stop function
+        try:
+            stop_ssh_tunnel()
+        except Exception:
+            pass
+
     # Mark provisional state so UI can show intent immediately
     st.session_state['ssh_tunnel_active'] = 'starting'
     st.session_state['ssh_tunnel_error'] = None
@@ -182,30 +192,15 @@ def start_ssh_tunnel_sync(config, timeout_seconds: float = 10.0):
             break
     if not started_event.is_set():
         # Timeout: attempt cleanup
-        try:
-            # If thread still alive and start() potentially blocked, we cannot forcibly kill; mark error state.
-            pass
-        finally:
-            st.session_state['ssh_tunnel_active'] = False
-            st.session_state['ssh_tunnel_error'] = f"Timeout starting SSH tunnel after {timeout_seconds:.0f}s. Please verify server host/port, credentials, and network access."
-        # Best effort stop
-        try:
-            if TUNNEL_SERVER and getattr(TUNNEL_SERVER, 'is_active', False):
-                TUNNEL_SERVER.stop()
-        except Exception:
-            pass
+        _cleanup_failure(
+            f"Timeout starting SSH tunnel after {timeout_seconds:.0f}s. Please verify server host/port, credentials, and network access."
+        )
         return False
 
     # Thread finished: check for exception
     if exc_holder:
         err = exc_holder[0]
-        st.session_state['ssh_tunnel_active'] = False
-        st.session_state['ssh_tunnel_error'] = f"Failed to start SSH tunnel: {err}"
-        try:
-            if TUNNEL_SERVER and getattr(TUNNEL_SERVER, 'is_active', False):
-                TUNNEL_SERVER.stop()
-        except Exception:
-            pass
+        _cleanup_failure(f"Failed to start SSH tunnel: {err}")
         return False
 
     # Success path
@@ -223,19 +218,20 @@ def start_ssh_tunnel_sync(config, timeout_seconds: float = 10.0):
 
 def stop_ssh_tunnel():
     """
-    Stops the SSH tunnel if it is running.
+    Stops the SSH tunnel and clears related session state.
+    Always attempts to reset local state even if the tunnel was not fully active.
     """
-    # Access the global tunnel server instance
     global TUNNEL_SERVER
-    # If the tunnel server exists and is active
-    if TUNNEL_SERVER and TUNNEL_SERVER.is_active:
-        # Stop the tunnel
-        TUNNEL_SERVER.stop()
-        # Reset the tunnel server instance
+    try:
+        if TUNNEL_SERVER:
+            # Stop only if active to avoid raising from sshtunnel when not started
+            if getattr(TUNNEL_SERVER, 'is_active', False):
+                TUNNEL_SERVER.stop()
+    finally:
+        # Clear the reference regardless to avoid stale handles
         TUNNEL_SERVER = None
-        # Update the tunnel status in the session state
+        # Update session state consistently
         st.session_state['ssh_tunnel_active'] = False
-        # Revert the ollama_url to the default
         st.session_state['ollama_url'] = "http://localhost:11434"
 
 def get_tunnel_status():
