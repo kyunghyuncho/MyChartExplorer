@@ -15,7 +15,6 @@ except Exception:
     pass
 from sshtunnel import SSHTunnelForwarder
 import threading
-import time
 from urllib.parse import urlparse
 import socket
 
@@ -185,12 +184,8 @@ def start_ssh_tunnel_sync(config, timeout_seconds: float = 10.0):
     th = threading.Thread(target=_run, daemon=True)
     th.start()
 
-    deadline = time.time() + timeout_seconds
-    # Poll event instead of join(timeout) so we can remain responsive later if needed
-    while time.time() < deadline:
-        if started_event.wait(timeout=0.1):
-            break
-    if not started_event.is_set():
+    # Wait once up to the full timeout; no need to poll in a synchronous path
+    if not started_event.wait(timeout_seconds):
         # Timeout: attempt cleanup
         _cleanup_failure(
             f"Timeout starting SSH tunnel after {timeout_seconds:.0f}s. Please verify server host/port, credentials, and network access."
