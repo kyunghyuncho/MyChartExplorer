@@ -107,22 +107,127 @@ def start_ssh_tunnel(config):
     tunnel_thread = threading.Thread(target=run_tunnel)
     tunnel_thread.daemon = True
     tunnel_thread.start()
+    return True
+
+
+def start_ssh_tunnel_sync(config, timeout_seconds: float = 10.0):
+    """Start the SSH tunnel synchronously with a timeout.
+
+    This implements Solution B from `tunnel_port.md`:
+    - Provide immediate, deterministic state without a race against the UI rerun.
+    - If the underlying `SSHTunnelForwarder.start()` call hangs longer than `timeout_seconds`, abort and surface an error.
+
+    Args:
+        config (dict): SSH + remote Ollama configuration.
+        timeout_seconds (float): Max seconds to wait for tunnel establishment.
+
+    Returns:
+        bool: True if tunnel started successfully; False otherwise.
+    """
+    ssh_host = config["ssh_host"]
+    ssh_port = int(config["ssh_port"])
+    ssh_user = config["ssh_user"]
+    ssh_password = config["ssh_password"]
+    ssh_private_key = config.get("ssh_private_key") or None
+    ssh_passphrase = config.get("ssh_passphrase") or None
+    remote_ollama_url = config["remote_ollama_url"]
+
+    remote_host, remote_port = _parse_remote(remote_ollama_url)
+    local_port = int(config.get("local_tunnel_port", 11435))
+
+    # Stop any existing tunnel first
+    stop_ssh_tunnel()
+
+    global TUNNEL_SERVER
+    tunnel_kwargs = {
+        "ssh_address_or_host": (ssh_host, ssh_port),
+        "ssh_username": ssh_user,
+        "remote_bind_address": (remote_host, remote_port),
+        "local_bind_address": ("127.0.0.1", local_port),
+    }
+    if ssh_private_key:
+        tunnel_kwargs["ssh_pkey"] = ssh_private_key
+        if ssh_passphrase:
+            tunnel_kwargs["ssh_private_key_password"] = ssh_passphrase
+    else:
+        tunnel_kwargs["ssh_password"] = ssh_password
+
+    TUNNEL_SERVER = SSHTunnelForwarder(**tunnel_kwargs)
+
+    # Use a thread to allow timeout control without freezing Streamlit excessively
+    exc_holder: list[Exception] = []
+    started_event = threading.Event()
+
+    def _run():
+        try:
+            TUNNEL_SERVER.start()
+        except Exception as e:  # Capture exception for main thread
+            exc_holder.append(e)
+        finally:
+            started_event.set()
+
+    def _cleanup_failure(msg: str):
+        """Set failure state and best-effort stop/clear the tunnel server."""
+        st.session_state['ssh_tunnel_active'] = False
+        st.session_state['ssh_tunnel_error'] = msg
+        # Best-effort stop and clear via common stop function
+        try:
+            stop_ssh_tunnel()
+        except Exception:
+            pass
+
+    # Mark provisional state so UI can show intent immediately
+    st.session_state['ssh_tunnel_active'] = 'starting'
+    st.session_state['ssh_tunnel_error'] = None
+    st.session_state['ollama_url'] = f"http://localhost:{local_port}"
+
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+
+    # Wait once up to the full timeout; no need to poll in a synchronous path
+    if not started_event.wait(timeout_seconds):
+        # Timeout: attempt cleanup
+        _cleanup_failure(
+            f"Timeout starting SSH tunnel after {timeout_seconds:.0f}s. Please verify server host/port, credentials, and network access."
+        )
+        return False
+
+    # Thread finished: check for exception
+    if exc_holder:
+        err = exc_holder[0]
+        _cleanup_failure(f"Failed to start SSH tunnel: {err}")
+        return False
+
+    # Success path
+    st.session_state['ssh_tunnel_active'] = True
+    # Re-confirm bound port in case remote changed; sshtunnel uses attribute local_bind_port
+    try:
+        bound_port = getattr(TUNNEL_SERVER, 'local_bind_port', local_port)
+        st.session_state['ollama_url'] = f"http://localhost:{bound_port}"
+        # Verify connectivity quickly
+        if not _tcp_check("127.0.0.1", int(bound_port), timeout=1.5):
+            st.session_state['ssh_tunnel_error'] = "Tunnel established but local port not reachable (connectivity test failed)."
+    except Exception as e:
+        st.session_state['ssh_tunnel_error'] = f"Tunnel started, but failed during post-start verification: {e}"
+
+    return True
 
 def stop_ssh_tunnel():
     """
-    Stops the SSH tunnel if it is running.
+    Stops the SSH tunnel and clears related session state.
+    Always attempts to reset local state even if the tunnel was not fully active.
     """
-    # Access the global tunnel server instance
     global TUNNEL_SERVER
-    # If the tunnel server exists and is active
-    if TUNNEL_SERVER and TUNNEL_SERVER.is_active:
-        # Stop the tunnel
-        TUNNEL_SERVER.stop()
-        # Reset the tunnel server instance
+    try:
+        if TUNNEL_SERVER:
+            # Stop only if active to avoid raising from sshtunnel when not started
+            if getattr(TUNNEL_SERVER, 'is_active', False):
+                TUNNEL_SERVER.stop()
+    finally:
+        # Clear the reference regardless to avoid stale handles
         TUNNEL_SERVER = None
-        # Update the tunnel status in the session state
+        # Update session state consistently
         st.session_state['ssh_tunnel_active'] = False
-        # Revert the ollama_url to the default
         st.session_state['ollama_url'] = "http://localhost:11434"
 
 def get_tunnel_status():
