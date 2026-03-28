@@ -1,0 +1,4 @@
+[server]
+# Increase upload/message limits to accommodate large MyChart XML exports
+maxUploadSize = 1024  # in MB
+maxMessageSize = 1024 # in MB

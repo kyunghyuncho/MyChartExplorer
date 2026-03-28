@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+
+# Xcode
+## User-specific files
+*.xcuserdatad
+*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+*.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+## Build generated
+build/
+DerivedData/
+
+# Cache files
+*.cache
+
+# Secrets - IMPORTANT!
+.gemini_api_key.cache
+
+# Databases
+*.db
+*.sqlite3
+
+# Other data files
+*.json
+
+
+StreamLit/config.yaml
+__pycache__/
+*.pyc
+
+# Private data exports
+Data/
+*IHE_XDM*
+*.XML
+
+# Markdown Docs
+*.md
+!README.md
+!StreamLit/README.md

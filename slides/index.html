@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+	<title>MyChartExplorer: Implementation Overview</title>
+
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/reset.min.css">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/reveal.min.css">
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/theme/black.min.css">
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+	<!-- Professional & Dry Styling -->
+	<style>
+		:root {
+			--primary: #ffffff;
+			--secondary: #b3b3b3;
+			--accent: #4a90e2;
+			--background: #111111;
+		}
+
+		body {
+			background: var(--background) !important;
+			font-family: 'Inter', sans-serif;
+		}
+
+		.reveal {
+			font-family: 'Inter', sans-serif;
+			font-size: 22px;
+			/* Reduced to fix overflow */
+		}
+
+		.reveal h1,
+		.reveal h2,
+		.reveal h3 {
+			font-family: 'Inter', sans-serif;
+			text-transform: none;
+			font-weight: 500;
+			color: var(--primary);
+		}
+
+		.reveal h1 {
+			font-size: 2.2em;
+			line-height: 1.2;
+			margin-bottom: 25px;
+		}
+
+		.reveal h2 {
+			font-size: 1.6em;
+			border-bottom: 1px solid #333;
+			padding-bottom: 8px;
+			margin-bottom: 20px;
+		}
+
+		.reveal h3 {
+			font-size: 1.2em;
+			color: var(--accent);
+		}
+
+		.reveal p,
+		.reveal li {
+			font-size: 0.9em;
+			line-height: 1.4;
+			color: var(--secondary);
+		}
+
+		.reveal ul {
+			list-style-type: square;
+			padding-left: 20px;
+			margin-bottom: 15px;
+		}
+
+		.reveal ul li {
+			margin-bottom: 10px;
+		}
+
+		.grid-container {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 20px;
+			text-align: left;
+		}
+
+		.content-block {
+			background: #1a1a1a;
+			border: 1px solid #333;
+			padding: 15px;
+			border-radius: 4px;
+			text-align: left;
+		}
+
+		.highlight {
+			color: var(--primary);
+			font-weight: 500;
+		}
+
+		.footer-info {
+			position: absolute;
+			bottom: 15px;
+			left: 20px;
+			font-size: 14px;
+			color: #555;
+			font-family: 'Inter', sans-serif;
+			z-index: 1000;
+		}
+
+		img.screenshot {
+			max-height: 250px;
+			/* Reduced to fix overflow */
+			max-width: 100%;
+			border: 1px solid #333;
+			border-radius: 4px;
+			display: block;
+			margin: 10px auto;
+		}
+
+		.reveal a {
+			color: var(--accent);
+			text-decoration: none;
+		}
+
+		.reveal a:hover {
+			text-decoration: underline;
+		}
+	</style>
+</head>
+
+<body>
+	<div class="reveal">
+		<div class="slides">
+
+			<!-- Slide 1: Title -->
+			<section>
+				<h1>MyChartExplorer</h1>
+				<p style="font-size: 1.1em; color: var(--secondary); margin-bottom: 10px;">Iterative Implementation of a
+					Personal Medical Record Interface</p>
+				<p style="font-size: 0.8em; color: var(--accent); margin-bottom: 40px; font-style: italic;">
+					Vibe-coded in October 2025 — illustrating the rapid pace of AI evolution. Be proud you are here
+					today.
+				</p>
+
+				<div
+					style="text-align: left; margin-top: 30px; border-left: 3px solid var(--accent); padding-left: 20px;">
+					<p class="highlight" style="font-size: 1em; margin-bottom: 5px;">Kyunghyun Cho</p>
+					<p style="font-size: 0.7em; color: var(--secondary); margin-bottom: 10px;">Glen de Vries Professor
+						of Health Statistics<br>Professor of Computer Science and Data Science<br>New York University
+					</p>
+					<p style="font-size: 0.7em;">Google Cloud Hackathon @ NYU<br>March 28, 2026<br><a
+							href="https://www.kyunghyuncho.me/">kyunghyuncho.me</a></p>
+				</div>
+			</section>
+
+			<!-- Slide 2: Problem Statement -->
+			<section>
+				<h2>Problem Statement &amp; Context</h2>
+				<div class="content-block">
+					<ul>
+						<li><span class="highlight">Current EHR Ecosystem:</span> Existing electronic health record
+							interfaces (e.g., MyChart) are structurally optimized for care providers and insurance
+							payers, resulting in suboptimal patient usability.</li>
+						<li><span class="highlight">Regulatory Baseline:</span> Under current regulations (e.g., HIPAA),
+							patients legally own their medical records and maintain the right to access them. Systems
+							like Epic and AthenaHealth technically permit record exportation.</li>
+						<li><span class="highlight">Objective:</span> Implement an interface capable of ingesting
+							exported raw medical data, standardizing it, and exposing it to natural language queries via
+							large language models (LLMs).</li>
+					</ul>
+				</div>
+			</section>
+
+			<!-- Slide 3: Prototype V1 -->
+			<section>
+				<h2>Iteration I: Python &amp; SQLite Prototype</h2>
+				<div class="grid-container" style="gap: 20px;">
+					<div>
+						<ul>
+							<li><span class="highlight">Architecture:</span> Native Python ingestion pipeline leveraging
+								<code>sqlite3</code> and Tcl/Tk for the GUI.
+							</li>
+							<li><span class="highlight">Generation:</span> DB schemas and ingestion scripts generated
+								via Google Gemini 2.5 Pro using 100+ exported XML records.</li>
+							<li><span class="highlight">Functionality:</span> Natural language input mapped to SQL
+								queries via Gemini to retrieve and summarize historical health data.</li>
+						</ul>
+					</div>
+					<div>
+						<img class="screenshot"
+							src="https://kyunghyuncho.me/wp-content/uploads/2025/10/Screenshot-2025-10-05-at-12.35.31-1024x828.png"
+							alt="Python Tkinter Interface">
+					</div>
+				</div>
+			</section>
+
+			<!-- Slide 4: Prototype V2 -->
+			<section>
+				<h2>Iteration II: Native macOS Application</h2>
+				<div class="grid-container" style="gap: 20px;">
+					<div>
+						<ul>
+							<li><span class="highlight">Framework:</span> Swift and Xcode. Codebase heavily scaffolded
+								using GitHub Copilot, Gemini, and GPT-5 due to lack of prior Swift familiarity.</li>
+							<li><span class="highlight">Core Updates:</span> Introduced multi-backend support,
+								accommodating both external API calls (Gemini) and local execution (Ollama).</li>
+							<li><span class="highlight">Limitations:</span> High reliance on LLM-generated code
+								introduced verification overhead and uncertainty regarding edge-case stability.</li>
+						</ul>
+					</div>
+					<div>
+						<img class="screenshot"
+							src="https://kyunghyuncho.me/wp-content/uploads/2025/10/Screenshot-2025-10-05-at-12.36.54-1024x828.png"
+							alt="macOS Application Interface">
+					</div>
+				</div>
+			</section>
+
+			<!-- Slide 5: Prototype V3 -->
+			<section>
+				<h2>Iteration III: Streamlit Web Application</h2>
+				<div class="grid-container" style="gap: 20px;">
+					<div>
+						<ul>
+							<li><span class="highlight">Framework:</span> Python with Streamlit for cross-device
+								compatibility.</li>
+							<li><span class="highlight">Enhancements:</span>
+								<ul>
+									<li>Implementation of AES encryption for database records and conversational logs.
+									</li>
+									<li>Concurrent multi-user support structures.</li>
+									<li>SSH tunneling capability for routing queries to private LLM instances.</li>
+								</ul>
+							</li>
+							<li><span class="highlight">Compliance:</span> Explicit UI gating confirming outputs are
+								informational and not medical advice.</li>
+						</ul>
+					</div>
+					<div>
+						<img class="screenshot"
+							src="https://kyunghyuncho.me/wp-content/uploads/2025/10/Screenshot-2025-10-05-at-13.11.43-1024x909.png"
+							alt="Streamlit Web App">
+					</div>
+				</div>
+			</section>
+
+			<!-- Slide 6: Infrastructure -->
+			<section>
+				<h2>Infrastructure &amp; Deployment</h2>
+				<div class="content-block">
+					<ul>
+						<li><span class="highlight">Compute:</span> Hosted on a minimal DigitalOcean Droplet, optimizing
+							for low overhead while delegating compute logic to third-party LLM APIs.</li>
+						<li><span class="highlight">Networking &amp; Routing:</span> Domain managed via Namecheap; HTTPS
+							routing secured via Cloudflare Origin Server Certificate.</li>
+						<li><span class="highlight">Access Control:</span> Closed system utilizing SendGrid for handling
+							invitation-based registration workflows.</li>
+					</ul>
+				</div>
+			</section>
+
+			<!-- Slide 7: Ingestion Subsystem -->
+			<section>
+				<h2>Data Ingestion Interfaces: FHIR API</h2>
+				<ul>
+					<li><span class="highlight">Initial Constraint:</span> Manual XML export/import poses a significant
+						barrier to user adoption.</li>
+					<li><span class="highlight">Integration:</span> Developed an ingestion module utilizing the FHIR API
+						standard to interface directly with Epic Systems' MyChart infrastructures.</li>
+					<li><span class="highlight">Institutional Friction:</span> While functional in sandbox environments,
+						direct API access is strictly gated by individual healthcare institutions (e.g., NYU Langone)
+						due to liability and data-exfiltration risks.</li>
+				</ul>
+				<img class="screenshot"
+					src="https://kyunghyuncho.me/wp-content/uploads/2025/10/GvxuI9yWIAENO7O-1024x703.jpeg"
+					alt="FHIR API Institutional Friction" style="max-height: 250px;">
+			</section>
+
+			<!-- Slide 8: API Dispatcher Architecture -->
+			<section>
+				<h2>LLM API Dispatch &amp; Authentication</h2>
+				<div class="content-block">
+					<ul>
+						<li><span class="highlight">Initial Issue:</span> Forcing end-users to provision Google Cloud
+							projects for Gemini API access introduces excessive configurational complexity.</li>
+						<li><span class="highlight">Refactoring:</span> Abstracted the LLM backend routing to utilize
+							<strong>OpenRouter</strong>.
+						</li>
+						<li><span class="highlight">Result:</span> Enables a "Bring Your Own Key" (BYOK) paradigm.
+							Reduces application-level API cost management while exposing localized performance
+							improvements (e.g., optimal routing for Gemini-2.5-Flash).</li>
+					</ul>
+				</div>
+			</section>
+
+			<!-- Slide 9: Legal Structuring -->
+			<section>
+				<h2>Liability Mitigation</h2>
+				<div class="content-block">
+					<ul>
+						<li>Handling sensitive personal medical information introduces significant personal liability
+							risks.</li>
+						<li><span class="highlight">Action:</span> Established a formal Limited Liability Company (KC
+							Explorer LLC) via LegalZoom.</li>
+						<li><span class="highlight">Asset Transfer:</span> Transferred all IP, domain registrations, and
+							server resources to the corporate entity to strictly separate personal liability from
+							application performance and data handling.</li>
+					</ul>
+				</div>
+			</section>
+
+			<!-- Slide 10: Clinical Application Extensibility -->
+			<section>
+				<h2>A Potential Clinical Deployment Protocol</h2>
+				<div class="content-block">
+					<ol style="padding-left: 20px; line-height: 1.6;">
+						<li><span class="highlight">Pre-Encounter Intake:</span> Patient interacts with the
+							MyChartExplorer interface asynchronously or within the clinical waiting environment.</li>
+						<li><span class="highlight">Inference &amp; Verification:</span> The LLM contextualizes the
+							patient's immediate concerns against their verified historical EHR data.</li>
+						<li><span class="highlight">Synthesis:</span> Generates a structured pre-visit diagnostic
+							summary report.</li>
+						<li><span class="highlight">Review:</span> Clinician evaluates the synthesized report prior to
+							the encounter, hypothetically reducing intake redundancy and compressing time-to-treatment.
+						</li>
+					</ol>
+				</div>
+			</section>
+
+			<!-- Slide 11: Summary -->
+			<section>
+				<h2>Resources</h2>
+				<div class="content-block" style="text-align: center; margin-top: 40px;">
+					<p style="font-size: 1.1em; margin-bottom: 20px;">URL: <a
+							href="https://www.mychartexplorer.com">www.mychartexplorer.com</a></p>
+					<p style="font-size: 1.1em; margin-bottom: 20px;">Source: <a
+							href="https://github.com/kyunghyuncho/MyChartExplorer">github.com/kyunghyuncho/MyChartExplorer</a>
+					</p>
+				</div>
+			</section>
+
+		</div>
+		<div class="footer-info">Kyunghyun Cho | New York University | @kchonyc | MyChartExplorer</div>
+	</div>
+
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/5.0.4/reveal.min.js"></script>
+	<script>
+		Reveal.initialize({
+			hash: true,
+			transition: 'none',
+			backgroundTransition: 'none',
+			slideNumber: 'c/t',
+			center: false,
+			width: 1100,
+			margin: 0.1,
+		});
+	</script>
+</body>
+
+</html>
